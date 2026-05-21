@@ -1,0 +1,37 @@
+settings:
+  items-per-page: 45
+  ping-optimizer:
+    enabled: true
+    reapply-seconds: 60
+
+messages:
+  prefix: "&8[&bMineLife Core&8]&r "
+  players-only: "&cOnly players can use this command."
+  no-permission: "&cOnly server ops can manage /kitshop."
+  economy-missing: "&cThe economy is not available right now."
+  holding-air: "&cHold the shulker kit you want to sell, then run &e/kitshop add <price> <stock>&c."
+  not-shulker: "&cOnly shulker boxes can be added to the kit shop."
+  invalid-price: "&cUse a price greater than 0."
+  invalid-stock: "&cUse a stock amount of at least 1."
+  item-added: "&aAdded kit &f%item% &afor &e%price% &awith &e%stock% &ain stock."
+  item-removed: "&aRemoved kit &f%item% &afrom the kit shop."
+  shop-empty: "&cThe kit shop is empty right now."
+  not-enough-money: "&cYou need &e%price% &cto buy that."
+  inventory-full: "&cMake room in your inventory first."
+  bought-item: "&aBought kit &f%item% &afor &e%price%&a. &e%stock% &aleft."
+  bought-last-item: "&aBought the last &f%item% &akit for &e%price%&a. It is now out of stock."
+  out-of-stock: "&cThat kit is out of stock."
+  reloaded: "&aKit shop reloaded."
+  add-chat-prompt: "&aType the price and stock for kit &f%item%&a, like &e500 10&a, or type &ccancel&a."
+  add-cancelled: "&cCancelled adding that kit."
+  money-usage: "&eUsage: /money | /money add/remove <amount> | /money <player> add/remove <amount>"
+  money-balance: "&aBalance: &e%balance%"
+  money-balance-other: "&a%player%'s balance: &e%balance%"
+  money-added: "&aAdded &e%amount% &ato &f%player%&a. Balance: &e%balance%&a."
+  money-removed: "&aRemoved &e%amount% &afrom &f%player%&a. Balance: &e%balance%&a."
+  ping-self: "&aPing: &e%ping%ms &8| &aTPS: &e%tps%"
+  ping-other: "&a%player%'s ping: &e%ping%ms &8| &aTPS: &e%tps%"
+  player-not-online: "&cThat player is not online."
+  core-status: "&aTPS: &e%tps% &8| &aOnline: &e%online% &8| &aAverage ping: &e%avg_ping%ms &8| &aHighest ping: &e%max_ping%ms"
+  core-safe-optimizer: "&aSafe latency monitor is active. No mobs, chunks, items, or gameplay settings are changed."
+  ping-optimizer-status: "&aPing optimizer: &e%state% &8| &aTCP_NODELAY applied: &e%applied%/%online%"

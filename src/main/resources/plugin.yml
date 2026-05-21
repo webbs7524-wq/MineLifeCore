@@ -1,0 +1,50 @@
+main: com.vivify.kitshop.KitShopPlugin
+name: ${NAME}
+prefix: MineLife Core
+version: "${VERSION}"
+api-version: "1.21"
+author: Vivify
+description: MineLife core commands, kit shop, economy helpers, and safe latency monitoring.
+depend: [Vault]
+softdepend: [EconomyShopGUI]
+commands:
+  minelifecore:
+    description: MineLife Core status and admin command.
+    usage: "/minelifecore [status|reload|help]"
+    aliases: [mlcore, minecore]
+  ping:
+    description: Shows connection ping and server TPS.
+    usage: "/ping [player]"
+    aliases: [mlping]
+  kitshop:
+    description: Open the kit shop.
+    usage: "/kitshop [buy|edit|add <price> <stock>|reload|help]"
+    aliases: [kshop]
+  money:
+    description: Show balance or manage balances as op.
+    usage: "/money [add|remove <amount>] | /money <player> add|remove <amount>"
+permissions:
+  kitshop.use:
+    description: Allows players to buy from the kit shop.
+    default: true
+  kitshop.admin:
+    description: Allows ops to add and remove shulker kits.
+    default: op
+  minelifecore.admin:
+    description: Allows ops to reload MineLife Core.
+    default: op
+  minelifecore.ping.other:
+    description: Allows ops to check another player's ping.
+    default: op
+  kitshop.money:
+    description: Allows ops to manage money balances.
+    default: op
+  minelifecore.*:
+    description: Grants every MineLife Core permission.
+    default: op
+    children:
+      kitshop.use: true
+      kitshop.admin: true
+      kitshop.money: true
+      minelifecore.admin: true
+      minelifecore.ping.other: true
