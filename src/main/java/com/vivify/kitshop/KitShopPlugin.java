@@ -87,6 +87,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     registerCommand("money");
     registerCommand("minelifecore");
     registerCommand("ping");
+    registerCommand("server");
     startPingOptimizer();
   }
 
@@ -102,6 +103,11 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       final Command command,
       final String label,
       final String[] args) {
+    if ("server".equalsIgnoreCase(command.getName())) {
+      handleServerCommand(sender, args);
+      return true;
+    }
+
     if (!(sender instanceof Player player)) {
       sender.sendMessage(color(message("players-only")));
       return true;
@@ -214,6 +220,15 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       return List.of();
     }
 
+    if ("server".equalsIgnoreCase(command.getName())) {
+      if (args.length == 1 && canStopServer(sender)) {
+        return List.of("stop").stream()
+            .filter(value -> value.startsWith(args[0].toLowerCase(Locale.ROOT)))
+            .toList();
+      }
+      return List.of();
+    }
+
     if ("money".equalsIgnoreCase(command.getName())) {
       if (!sender.isOp()) {
         return List.of();
@@ -279,6 +294,9 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       String[] parts = commandText.substring(1).trim().split("\\s+");
       String[] args = parts.length > 1 ? List.of(parts).subList(1, parts.length).toArray(String[]::new) : new String[0];
       handlePingCommand(event.getPlayer(), args);
+    } else if (lowerCommand.equals("/server stop")) {
+      event.setCancelled(true);
+      handleServerCommand(event.getPlayer(), new String[] {"stop"});
     }
   }
 
@@ -482,6 +500,9 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     changed |= setDefaultMessage(
         "messages.ping-optimizer-status",
         "&aPing optimizer: &e%state% &8| &aTCP_NODELAY applied: &e%applied%/%online%");
+    changed |= setDefaultMessage("messages.server-stop-usage", "&eUsage: /server stop");
+    changed |= setDefaultMessage("messages.server-stop-no-permission", "&cOnly server ops can stop the server.");
+    changed |= setDefaultMessage("messages.server-stop-starting", "&cStopping the server now.");
     String prefix = getConfig().getString("messages.prefix", "");
     if (prefix.contains("[&dKitShop&8]")) {
       getConfig().set("messages.prefix", "&8[&bMineLife Core&8]&r ");
@@ -623,6 +644,25 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
         .replace("%ping%", String.valueOf(playerPing(target)))
         .replace("%tps%", formatTps(currentTps()));
     viewer.sendMessage(color(message("prefix") + responseMessage));
+  }
+
+  private void handleServerCommand(final CommandSender sender, final String[] args) {
+    if (args.length != 1 || !"stop".equalsIgnoreCase(args[0])) {
+      sender.sendMessage(prefixed("server-stop-usage"));
+      return;
+    }
+
+    if (!canStopServer(sender)) {
+      sender.sendMessage(prefixed("server-stop-no-permission"));
+      return;
+    }
+
+    sender.sendMessage(prefixed("server-stop-starting"));
+    Bukkit.getScheduler().runTask(this, () -> getServer().shutdown());
+  }
+
+  private boolean canStopServer(final CommandSender sender) {
+    return sender.isOp() || sender.hasPermission("minelifecore.server.stop");
   }
 
   private void handleCoreCommand(final Player player, final String label, final String[] args) {

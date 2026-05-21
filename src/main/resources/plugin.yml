@@ -16,6 +16,9 @@ commands:
     description: Shows connection ping and server TPS.
     usage: "/ping [player]"
     aliases: [mlping]
+  server:
+    description: MineLife Core server controls.
+    usage: "/server stop"
   kitshop:
     description: Open the kit shop.
     usage: "/kitshop [buy|edit|add <price> <stock>|reload|help]"
@@ -36,6 +39,9 @@ permissions:
   minelifecore.ping.other:
     description: Allows ops to check another player's ping.
     default: op
+  minelifecore.server.stop:
+    description: Allows ops to stop the server with /server stop.
+    default: op
   kitshop.money:
     description: Allows ops to manage money balances.
     default: op
@@ -48,3 +54,4 @@ permissions:
       kitshop.money: true
       minelifecore.admin: true
       minelifecore.ping.other: true
+      minelifecore.server.stop: true

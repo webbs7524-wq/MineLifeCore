@@ -35,3 +35,6 @@ messages:
   core-status: "&aTPS: &e%tps% &8| &aOnline: &e%online% &8| &aAverage ping: &e%avg_ping%ms &8| &aHighest ping: &e%max_ping%ms"
   core-safe-optimizer: "&aSafe latency monitor is active. No mobs, chunks, items, or gameplay settings are changed."
   ping-optimizer-status: "&aPing optimizer: &e%state% &8| &aTCP_NODELAY applied: &e%applied%/%online%"
+  server-stop-usage: "&eUsage: /server stop"
+  server-stop-no-permission: "&cOnly server ops can stop the server."
+  server-stop-starting: "&cStopping the server now."
