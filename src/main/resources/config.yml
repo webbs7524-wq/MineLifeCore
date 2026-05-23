@@ -11,7 +11,7 @@ lifesteal:
   maximum-hearts: 20
   lose-hearts-on-non-player-death: true
   ban-on-elimination: true
-  ban-reason: "Eliminated from LifeSteal."
+  ban-reason: "Ran out of hearts."
   eliminate-to-spectator: false
   default-respawn:
     world: "MyMinecraftServer"
@@ -67,7 +67,7 @@ messages:
   lifesteal-lost-heart: "&c%player% lost a heart. Hearts left: &e%hearts%&c."
   lifesteal-stole-heart: "&a%killer% made &f%victim% &adrop a heart."
   lifesteal-killer-max: "&e%killer% is already at the heart limit."
-  lifesteal-eliminated: "&c%player% has been eliminated and banned."
+  lifesteal-eliminated: "&c%player% ran out of hearts and has been banned."
   lifesteal-bed-spawn-set: "&aBed spawn tracked. You will respawn at your bed."
   lifesteal-withdraw-usage: "&eUsage: /withdraw [amount]"
   lifesteal-withdraw-disabled: "&cHeart withdrawing is disabled."

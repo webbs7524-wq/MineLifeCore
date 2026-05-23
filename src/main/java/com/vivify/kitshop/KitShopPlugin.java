@@ -326,7 +326,9 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
           && ("revive".equalsIgnoreCase(args[0]) || "unban".equalsIgnoreCase(args[0]))) {
         return lifeStealProfiles.values().stream()
             .filter(LifeStealProfile::eliminated)
-            .map(LifeStealProfile::name)
+            .map(profile -> sanitizePlayerName(profile.name()))
+            .filter(value -> !value.isBlank())
+            .distinct()
             .filter(value -> value.toLowerCase(Locale.ROOT).startsWith(args[1].toLowerCase(Locale.ROOT)))
             .toList();
       }
@@ -712,7 +714,11 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       changed = true;
     }
     changed |= setDefaultConfig("lifesteal.ban-on-elimination", true);
-    changed |= setDefaultConfig("lifesteal.ban-reason", "Eliminated from LifeSteal.");
+    changed |= setDefaultConfig("lifesteal.ban-reason", "Ran out of hearts.");
+    if ("Eliminated from LifeSteal.".equals(getConfig().getString("lifesteal.ban-reason", ""))) {
+      getConfig().set("lifesteal.ban-reason", "Ran out of hearts.");
+      changed = true;
+    }
     changed |= setDefaultConfig("lifesteal.eliminate-to-spectator", false);
     if (getConfig().getBoolean("lifesteal.ban-on-elimination", true)
         && getConfig().getBoolean("lifesteal.eliminate-to-spectator", false)) {
@@ -737,9 +743,10 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       changed = true;
     }
     changed |= setDefaultMessage("messages.lifesteal-killer-max", "&e%killer% is already at the heart limit.");
-    changed |= setDefaultMessage("messages.lifesteal-eliminated", "&c%player% has been eliminated and banned.");
-    if ("&c%player% has been eliminated.".equals(getConfig().getString("messages.lifesteal-eliminated", ""))) {
-      getConfig().set("messages.lifesteal-eliminated", "&c%player% has been eliminated and banned.");
+    changed |= setDefaultMessage("messages.lifesteal-eliminated", "&c%player% ran out of hearts and has been banned.");
+    if ("&c%player% has been eliminated.".equals(getConfig().getString("messages.lifesteal-eliminated", ""))
+        || "&c%player% has been eliminated and banned.".equals(getConfig().getString("messages.lifesteal-eliminated", ""))) {
+      getConfig().set("messages.lifesteal-eliminated", "&c%player% ran out of hearts and has been banned.");
       changed = true;
     }
     changed |= setDefaultMessage("messages.lifesteal-bed-spawn-set", "&aBed spawn tracked. You will respawn at your bed.");
@@ -986,8 +993,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     }
 
     if ("unban".equalsIgnoreCase(args[0]) && args.length == 2) {
-      OfflinePlayer target = findTarget(args[1]);
-      unbanLifeStealPlayer(sender, target, args[1]);
+      unbanLifeStealPlayer(sender, args[1]);
       return;
     }
 
@@ -1188,28 +1194,43 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     }
   }
 
-  private void unbanLifeStealPlayer(
-      final CommandSender sender,
-      final OfflinePlayer target,
-      final String requestedName) {
-    LifeStealProfile profile = getOrCreateLifeStealProfile(target);
-    if (profile.eliminated() || profile.hearts() < 1) {
-      setProfileHearts(profile, startingHearts());
-    } else {
-      profile.setEliminated(false);
+  private void unbanLifeStealPlayer(final CommandSender sender, final String requestedName) {
+    String playerName = sanitizePlayerName(requestedName);
+    if (playerName.isBlank()) {
+      sender.sendMessage(prefixed("lifesteal-admin-usage"));
+      return;
     }
+
+    OfflinePlayer target = findTarget(playerName);
+    List<Map.Entry<UUID, LifeStealProfile>> matchingProfiles = matchingLifeStealProfiles(playerName);
+    if (matchingProfiles.isEmpty()) {
+      matchingProfiles = List.of(Map.entry(target.getUniqueId(), getOrCreateLifeStealProfile(target)));
+    }
+
+    int restoredHearts = startingHearts();
+    for (Map.Entry<UUID, LifeStealProfile> entry : matchingProfiles) {
+      LifeStealProfile profile = entry.getValue();
+      if (profile.eliminated() || profile.hearts() < 1) {
+        setProfileHearts(profile, startingHearts());
+      } else {
+        profile.setEliminated(false);
+      }
+      profile.setName(sanitizePlayerName(profile.name()).isBlank() ? playerName : sanitizePlayerName(profile.name()));
+      restoredHearts = profile.hearts();
+      applyLifeStealIfOnline(entry.getKey());
+      pardonLifeStealPlayer(profile.name());
+    }
+
     saveLifeStealData();
+    pardonLifeStealPlayer(playerName);
     pardonLifeStealPlayer(displayName(target));
-    if (requestedName != null && !requestedName.equalsIgnoreCase(displayName(target))) {
-      pardonLifeStealPlayer(requestedName);
-    }
     applyLifeStealIfOnline(target);
     sender.sendMessage(formatLifeStealMessage(
         "lifesteal-unbanned",
-        displayName(target),
-        displayName(target),
+        playerName,
+        playerName,
         "",
-        profile.hearts(),
+        restoredHearts,
         0,
         0));
   }
@@ -1225,15 +1246,16 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     }
     String reason = ChatColor.stripColor(color(getConfig().getString(
         "lifesteal.ban-reason",
-        "Eliminated from LifeSteal.")));
+        "Ran out of hearts.")));
     Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "ban " + player.getName() + " " + reason);
   }
 
   private void pardonLifeStealPlayer(final String playerName) {
-    if (playerName == null || playerName.isBlank()) {
+    String cleanName = sanitizePlayerName(playerName);
+    if (cleanName.isBlank() || cleanName.length() > 16) {
       return;
     }
-    Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "pardon " + playerName);
+    Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "pardon " + cleanName);
   }
 
   private void trackBedSpawn(final Player player) {
@@ -1444,6 +1466,13 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
 
   private void applyLifeStealIfOnline(final OfflinePlayer player) {
     Player onlinePlayer = Bukkit.getPlayer(player.getUniqueId());
+    if (onlinePlayer != null) {
+      applyLifeStealHealth(onlinePlayer);
+    }
+  }
+
+  private void applyLifeStealIfOnline(final UUID playerId) {
+    Player onlinePlayer = Bukkit.getPlayer(playerId);
     if (onlinePlayer != null) {
       applyLifeStealHealth(onlinePlayer);
     }
@@ -1811,16 +1840,56 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
 
   @SuppressWarnings("deprecation")
   private OfflinePlayer findTarget(final String name) {
-    Player onlinePlayer = Bukkit.getPlayerExact(name);
+    String playerName = sanitizePlayerName(name);
+    Player onlinePlayer = Bukkit.getPlayerExact(playerName);
     if (onlinePlayer != null) {
       return onlinePlayer;
     }
-    return Bukkit.getOfflinePlayer(name);
+    for (OfflinePlayer offlinePlayer : Bukkit.getOfflinePlayers()) {
+      if (sanitizePlayerName(offlinePlayer.getName()).equalsIgnoreCase(playerName)) {
+        return offlinePlayer;
+      }
+    }
+    UUID profileId = findLifeStealProfileIdByName(playerName);
+    if (profileId != null) {
+      return Bukkit.getOfflinePlayer(profileId);
+    }
+    return Bukkit.getOfflinePlayer(playerName);
   }
 
   private String displayName(final OfflinePlayer player) {
     String name = player.getName();
     return name == null ? player.getUniqueId().toString() : name;
+  }
+
+  private UUID findLifeStealProfileIdByName(final String name) {
+    String playerName = sanitizePlayerName(name);
+    UUID fallback = null;
+    for (Map.Entry<UUID, LifeStealProfile> entry : lifeStealProfiles.entrySet()) {
+      if (sanitizePlayerName(entry.getValue().name()).equalsIgnoreCase(playerName)) {
+        if (entry.getValue().eliminated()) {
+          return entry.getKey();
+        }
+        if (fallback == null) {
+          fallback = entry.getKey();
+        }
+      }
+    }
+    return fallback;
+  }
+
+  private List<Map.Entry<UUID, LifeStealProfile>> matchingLifeStealProfiles(final String name) {
+    String playerName = sanitizePlayerName(name);
+    return lifeStealProfiles.entrySet().stream()
+        .filter(entry -> sanitizePlayerName(entry.getValue().name()).equalsIgnoreCase(playerName))
+        .toList();
+  }
+
+  private String sanitizePlayerName(final String name) {
+    if (name == null) {
+      return "";
+    }
+    return name.trim().replaceAll("^[^A-Za-z0-9_]+|[^A-Za-z0-9_]+$", "");
   }
 
   private void handlePendingPrice(final Player player, final UUID playerId, final String chatMessage) {
