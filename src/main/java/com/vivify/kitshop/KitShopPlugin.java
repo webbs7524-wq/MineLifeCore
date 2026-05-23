@@ -23,10 +23,12 @@ import net.milkbowl.vault.economy.EconomyResponse;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.GameMode;
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.Sound;
+import org.bukkit.World;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.command.Command;
@@ -490,6 +492,10 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     if (!isLifeStealEnabled()) {
       return;
     }
+    LifeStealProfile profile = initializeLifeStealProfile(event.getPlayer());
+    if (!profile.hasBedSpawn() && !profile.eliminated()) {
+      event.setRespawnLocation(defaultLifeStealRespawnLocation());
+    }
     Bukkit.getScheduler().runTaskLater(this, () -> applyLifeStealHealth(event.getPlayer()), 1L);
   }
 
@@ -501,6 +507,9 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     Action action = event.getAction();
     if (action != Action.RIGHT_CLICK_AIR && action != Action.RIGHT_CLICK_BLOCK) {
       return;
+    }
+    if (event.getClickedBlock() != null && isBed(event.getClickedBlock().getType())) {
+      trackBedSpawn(event.getPlayer());
     }
     if (consumeLifeHeart(event.getPlayer(), event.getItem())) {
       event.setCancelled(true);
@@ -673,16 +682,38 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     changed |= setDefaultConfig("lifesteal.minimum-withdraw-hearts", 1);
     changed |= setDefaultConfig("lifesteal.maximum-hearts", 20);
     changed |= setDefaultConfig("lifesteal.lose-hearts-on-non-player-death", false);
-    changed |= setDefaultConfig("lifesteal.eliminate-to-spectator", true);
+    changed |= setDefaultConfig("lifesteal.ban-on-elimination", true);
+    changed |= setDefaultConfig("lifesteal.ban-reason", "Eliminated from LifeSteal.");
+    changed |= setDefaultConfig("lifesteal.eliminate-to-spectator", false);
+    if (getConfig().getBoolean("lifesteal.ban-on-elimination", true)
+        && getConfig().getBoolean("lifesteal.eliminate-to-spectator", false)) {
+      getConfig().set("lifesteal.eliminate-to-spectator", false);
+      changed = true;
+    }
+    changed |= setDefaultConfig("lifesteal.default-respawn.world", "MyMinecraftServer");
+    changed |= setDefaultConfig("lifesteal.default-respawn.x", 900705.509);
+    changed |= setDefaultConfig("lifesteal.default-respawn.y", 199.0);
+    changed |= setDefaultConfig("lifesteal.default-respawn.z", 9000253.545);
+    changed |= setDefaultConfig("lifesteal.default-respawn.yaw", -90.4);
+    changed |= setDefaultConfig("lifesteal.default-respawn.pitch", 0.1);
     changed |= setDefaultConfig("lifesteal.withdraw.enabled", true);
     changed |= setDefaultConfig("lifesteal.recipes.heart.enabled", true);
     changed |= setDefaultConfig("lifesteal.recipes.revive-beacon.enabled", true);
     changed |= setDefaultMessage("messages.lifesteal-disabled", "&cLifeSteal is disabled.");
     changed |= setDefaultMessage("messages.lifesteal-status", "&a%player% hearts: &e%hearts%&a/&e%max_hearts%&a. Eliminated: &e%eliminated%&a.");
     changed |= setDefaultMessage("messages.lifesteal-lost-heart", "&c%player% lost a heart. Hearts left: &e%hearts%&c.");
-    changed |= setDefaultMessage("messages.lifesteal-stole-heart", "&a%killer% stole a heart from &f%victim%&a.");
+    changed |= setDefaultMessage("messages.lifesteal-stole-heart", "&a%killer% made &f%victim% &adrop a heart.");
+    if (getConfig().getString("messages.lifesteal-stole-heart", "").contains("stole a heart")) {
+      getConfig().set("messages.lifesteal-stole-heart", "&a%killer% made &f%victim% &adrop a heart.");
+      changed = true;
+    }
     changed |= setDefaultMessage("messages.lifesteal-killer-max", "&e%killer% is already at the heart limit.");
-    changed |= setDefaultMessage("messages.lifesteal-eliminated", "&c%player% has been eliminated.");
+    changed |= setDefaultMessage("messages.lifesteal-eliminated", "&c%player% has been eliminated and banned.");
+    if ("&c%player% has been eliminated.".equals(getConfig().getString("messages.lifesteal-eliminated", ""))) {
+      getConfig().set("messages.lifesteal-eliminated", "&c%player% has been eliminated and banned.");
+      changed = true;
+    }
+    changed |= setDefaultMessage("messages.lifesteal-bed-spawn-set", "&aBed spawn tracked. You will respawn at your bed.");
     changed |= setDefaultMessage("messages.lifesteal-withdraw-usage", "&eUsage: /withdraw [amount]");
     changed |= setDefaultMessage("messages.lifesteal-withdraw-disabled", "&cHeart withdrawing is disabled.");
     changed |= setDefaultMessage(
@@ -938,7 +969,10 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       player.sendMessage(prefixed("lifesteal-withdraw-usage"));
       return;
     }
-    Integer amount = args.length == 0 ? 1 : parseStock(args[0]);
+    Integer amount = 1;
+    if (args.length == 1) {
+      amount = parseStock(args[0]);
+    }
     if (amount == null) {
       player.sendMessage(prefixed("lifesteal-withdraw-usage"));
       return;
@@ -1031,24 +1065,18 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     }
 
     victimProfile.setHearts(Math.max(0, victimProfile.hearts() - 1));
+    event.getDrops().add(createLifeHeartItem(1));
     if (victimProfile.hearts() <= 0) {
       victimProfile.setEliminated(true);
       event.getDrops().add(createSoulItem(victim));
-      Bukkit.getScheduler().runTaskLater(this, () -> applyLifeStealHealth(victim), 1L);
+      Bukkit.getScheduler().runTaskLater(this, () -> banEliminatedPlayer(victim), 1L);
       broadcastLifeSteal("lifesteal-eliminated", victim.getName(), victim.getName(), "", 0, 0, 0);
     } else {
       broadcastLifeSteal("lifesteal-lost-heart", victim.getName(), victim.getName(), "", victimProfile.hearts(), 0, 0);
     }
 
     if (playerKill) {
-      LifeStealProfile killerProfile = initializeLifeStealProfile(killer);
-      if (!killerProfile.eliminated() && killerProfile.hearts() < maximumHearts()) {
-        killerProfile.setHearts(Math.min(maximumHearts(), killerProfile.hearts() + 1));
-        applyLifeStealHealth(killer);
-        broadcastLifeSteal("lifesteal-stole-heart", victim.getName(), victim.getName(), killer.getName(), killerProfile.hearts(), 0, 0);
-      } else {
-        killer.sendMessage(formatLifeStealMessage("lifesteal-killer-max", victim.getName(), victim.getName(), killer.getName(), killerProfile.hearts(), 0, 0));
-      }
+      broadcastLifeSteal("lifesteal-stole-heart", victim.getName(), victim.getName(), killer.getName(), victimProfile.hearts(), 0, 0);
     }
 
     saveLifeStealData();
@@ -1101,6 +1129,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     profile.setHearts(startingHearts());
     profile.setEliminated(false);
     saveLifeStealData();
+    pardonLifeStealPlayer(displayName(target));
     applyLifeStealIfOnline(target);
     String messageText = formatLifeStealMessage("lifesteal-revived", displayName(target), displayName(target), "", profile.hearts(), 0, 0);
     if (broadcast) {
@@ -1112,6 +1141,52 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
 
   private boolean canAdminLifeSteal(final CommandSender sender) {
     return sender.isOp() || sender.hasPermission("minelifecore.lifesteal.admin");
+  }
+
+  private void banEliminatedPlayer(final Player player) {
+    if (!getConfig().getBoolean("lifesteal.ban-on-elimination", true)) {
+      applyLifeStealHealth(player);
+      return;
+    }
+    String reason = ChatColor.stripColor(color(getConfig().getString(
+        "lifesteal.ban-reason",
+        "Eliminated from LifeSteal.")));
+    Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "ban " + player.getName() + " " + reason);
+  }
+
+  private void pardonLifeStealPlayer(final String playerName) {
+    if (playerName == null || playerName.isBlank()) {
+      return;
+    }
+    Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "pardon " + playerName);
+  }
+
+  private void trackBedSpawn(final Player player) {
+    LifeStealProfile profile = initializeLifeStealProfile(player);
+    if (profile.hasBedSpawn()) {
+      return;
+    }
+    profile.setHasBedSpawn(true);
+    saveLifeStealData();
+    player.sendMessage(prefixed("lifesteal-bed-spawn-set"));
+  }
+
+  private boolean isBed(final Material material) {
+    return material != null && material.name().endsWith("_BED");
+  }
+
+  private Location defaultLifeStealRespawnLocation() {
+    String worldName = getConfig().getString("lifesteal.default-respawn.world", "MyMinecraftServer");
+    World world = Bukkit.getWorld(worldName == null ? "" : worldName);
+    if (world == null && !Bukkit.getWorlds().isEmpty()) {
+      world = Bukkit.getWorlds().get(0);
+    }
+    double x = getConfig().getDouble("lifesteal.default-respawn.x", 900705.509);
+    double y = getConfig().getDouble("lifesteal.default-respawn.y", 199.0);
+    double z = getConfig().getDouble("lifesteal.default-respawn.z", 9000253.545);
+    float yaw = (float) getConfig().getDouble("lifesteal.default-respawn.yaw", -90.4);
+    float pitch = (float) getConfig().getDouble("lifesteal.default-respawn.pitch", 0.1);
+    return new Location(world, x, y, z, yaw, pitch);
   }
 
   private void handleCoreCommand(final Player player, final String label, final String[] args) {
@@ -1204,7 +1279,8 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
         String name = section.getString(idText + ".name", playerId.toString());
         int hearts = Math.max(0, Math.min(maximumHearts(), section.getInt(idText + ".hearts", startingHearts())));
         boolean eliminated = section.getBoolean(idText + ".eliminated", hearts <= 0);
-        lifeStealProfiles.put(playerId, new LifeStealProfile(name, hearts, eliminated));
+        boolean hasBedSpawn = section.getBoolean(idText + ".has-bed-spawn", false);
+        lifeStealProfiles.put(playerId, new LifeStealProfile(name, hearts, eliminated, hasBedSpawn));
       } catch (IllegalArgumentException exception) {
         getLogger().warning("Skipped invalid LifeSteal player id: " + idText);
       }
@@ -1227,6 +1303,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       yaml.set(path + ".name", profile.name());
       yaml.set(path + ".hearts", profile.hearts());
       yaml.set(path + ".eliminated", profile.eliminated());
+      yaml.set(path + ".has-bed-spawn", profile.hasBedSpawn());
     }
 
     try {
@@ -1313,7 +1390,9 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       }
     }
 
-    if (profile.eliminated() && getConfig().getBoolean("lifesteal.eliminate-to-spectator", true)) {
+    if (profile.eliminated() && getConfig().getBoolean("lifesteal.ban-on-elimination", true)) {
+      Bukkit.getScheduler().runTask(this, () -> banEliminatedPlayer(player));
+    } else if (profile.eliminated() && getConfig().getBoolean("lifesteal.eliminate-to-spectator", false)) {
       player.setGameMode(GameMode.SPECTATOR);
     } else if (!profile.eliminated() && player.getGameMode() == GameMode.SPECTATOR) {
       player.setGameMode(GameMode.SURVIVAL);
@@ -1326,7 +1405,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       int currentHearts = currentBaseHearts(player);
       int starting = startingHearts();
       int initialHearts = currentHearts > 0 ? Math.min(maximumHearts(), currentHearts) : starting;
-      profile = new LifeStealProfile(player.getName(), initialHearts, initialHearts <= 0);
+      profile = new LifeStealProfile(player.getName(), initialHearts, initialHearts <= 0, false);
       lifeStealProfiles.put(player.getUniqueId(), profile);
       saveLifeStealData();
     } else {
@@ -1341,7 +1420,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     }
     return lifeStealProfiles.computeIfAbsent(
         player.getUniqueId(),
-        ignored -> new LifeStealProfile(displayName(player), startingHearts(), false));
+        ignored -> new LifeStealProfile(displayName(player), startingHearts(), false, false));
   }
 
   private void setProfileHearts(final LifeStealProfile profile, final int hearts) {
@@ -2100,11 +2179,17 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     private String name;
     private int hearts;
     private boolean eliminated;
+    private boolean hasBedSpawn;
 
-    private LifeStealProfile(final String name, final int hearts, final boolean eliminated) {
+    private LifeStealProfile(
+        final String name,
+        final int hearts,
+        final boolean eliminated,
+        final boolean hasBedSpawn) {
       this.name = name;
       this.hearts = hearts;
       this.eliminated = eliminated;
+      this.hasBedSpawn = hasBedSpawn;
     }
 
     private String name() {
@@ -2129,6 +2214,14 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
 
     private void setEliminated(final boolean eliminated) {
       this.eliminated = eliminated;
+    }
+
+    private boolean hasBedSpawn() {
+      return hasBedSpawn;
+    }
+
+    private void setHasBedSpawn(final boolean hasBedSpawn) {
+      this.hasBedSpawn = hasBedSpawn;
     }
   }
 
