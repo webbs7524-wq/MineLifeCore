@@ -26,6 +26,17 @@ commands:
   money:
     description: Show balance or manage balances as op.
     usage: "/money [add|remove <amount>] | /money <player> add|remove <amount>"
+  withdraw:
+    description: Withdraw extra LifeSteal hearts into physical heart items.
+    usage: "/withdraw [amount]"
+    aliases: [withdrawheart]
+  revive:
+    description: Revive an eliminated player using a Revive Beacon and their Soul item.
+    usage: "/revive <player>"
+  lifesteal:
+    description: Shows or manages MineLife Core LifeSteal data.
+    usage: "/lifesteal [status|set <player> <hearts>|revive <player>|reload]"
+    aliases: [lscore]
 permissions:
   kitshop.use:
     description: Allows players to buy from the kit shop.
@@ -42,6 +53,12 @@ permissions:
   minelifecore.server.stop:
     description: Allows ops to stop the server with /server stop.
     default: op
+  minelifecore.lifesteal.use:
+    description: Allows players to use LifeSteal items and player commands.
+    default: true
+  minelifecore.lifesteal.admin:
+    description: Allows ops to manage MineLife Core LifeSteal.
+    default: op
   kitshop.money:
     description: Allows ops to manage money balances.
     default: op
@@ -55,3 +72,5 @@ permissions:
       minelifecore.admin: true
       minelifecore.ping.other: true
       minelifecore.server.stop: true
+      minelifecore.lifesteal.use: true
+      minelifecore.lifesteal.admin: true

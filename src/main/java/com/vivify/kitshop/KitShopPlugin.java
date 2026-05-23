@@ -22,9 +22,13 @@ import net.milkbowl.vault.economy.Economy;
 import net.milkbowl.vault.economy.EconomyResponse;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.GameMode;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.Sound;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -34,18 +38,26 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.Action;
+import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
+import org.bukkit.inventory.ShapedRecipe;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataContainer;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
@@ -62,25 +74,37 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
 
   private final List<KitListing> listings = new ArrayList<>();
   private final Map<UUID, ItemStack> pendingAdds = new ConcurrentHashMap<>();
+  private final Map<UUID, LifeStealProfile> lifeStealProfiles = new ConcurrentHashMap<>();
   private File kitsFile;
+  private File lifeStealFile;
   private Economy economy;
   private int itemsPerPage;
   private BukkitTask pingOptimizerTask;
+  private NamespacedKey lifeHeartKey;
+  private NamespacedKey reviveBeaconKey;
+  private NamespacedKey soulPlayerKey;
+  private NamespacedKey soulNameKey;
+  private NamespacedKey heartRecipeKey;
+  private NamespacedKey reviveRecipeKey;
 
   @Override
   public void onEnable() {
+    initializeLifeStealKeys();
     saveDefaultConfig();
     upgradeStockMessages();
     upgradeAccessMessages();
     upgradeMoneyMessages();
     upgradeCoreMessages();
     upgradePingOptimizerSettings();
+    upgradeLifeStealSettings();
     itemsPerPage = Math.min(45, Math.max(9, getConfig().getInt("settings.items-per-page", 45)));
     kitsFile = new File(getDataFolder(), "kits.yml");
+    lifeStealFile = new File(getDataFolder(), "lifesteal.yml");
 
     migrateLegacyKitShopData();
     setupEconomy();
     loadListings();
+    loadLifeStealData();
 
     getServer().getPluginManager().registerEvents(this, this);
     registerCommand("kitshop");
@@ -88,13 +112,20 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     registerCommand("minelifecore");
     registerCommand("ping");
     registerCommand("server");
+    registerCommand("withdraw");
+    registerCommand("revive");
+    registerCommand("lifesteal");
+    registerLifeStealRecipes();
+    applyLifeStealToOnlinePlayers();
     startPingOptimizer();
   }
 
   @Override
   public void onDisable() {
     stopPingOptimizer();
+    removeLifeStealRecipes();
     saveListings();
+    saveLifeStealData();
   }
 
   @Override
@@ -105,6 +136,10 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       final String[] args) {
     if ("server".equalsIgnoreCase(command.getName())) {
       handleServerCommand(sender, args);
+      return true;
+    }
+    if ("lifesteal".equalsIgnoreCase(command.getName())) {
+      handleLifeStealCommand(sender, args);
       return true;
     }
 
@@ -123,6 +158,14 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     }
     if ("minelifecore".equalsIgnoreCase(command.getName())) {
       handleCoreCommand(player, label, args);
+      return true;
+    }
+    if ("withdraw".equalsIgnoreCase(command.getName())) {
+      handleWithdrawCommand(player, args);
+      return true;
+    }
+    if ("revive".equalsIgnoreCase(command.getName())) {
+      handleReviveCommand(player, args);
       return true;
     }
 
@@ -200,8 +243,11 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
         List<String> completions = new ArrayList<>();
         completions.add("status");
         completions.add("help");
-        if (sender.isOp()) {
+        if (sender.isOp() || sender.hasPermission("minelifecore.admin")) {
           completions.add("reload");
+        }
+        if (canStopServer(sender)) {
+          completions.add("stop");
         }
         return completions.stream()
             .filter(value -> value.startsWith(args[0].toLowerCase(Locale.ROOT)))
@@ -224,6 +270,55 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       if (args.length == 1 && canStopServer(sender)) {
         return List.of("stop").stream()
             .filter(value -> value.startsWith(args[0].toLowerCase(Locale.ROOT)))
+            .toList();
+      }
+      return List.of();
+    }
+
+    if ("withdraw".equalsIgnoreCase(command.getName())) {
+      if (args.length == 1) {
+        return List.of("1", "2", "5", "10").stream()
+            .filter(value -> value.startsWith(args[0].toLowerCase(Locale.ROOT)))
+            .toList();
+      }
+      return List.of();
+    }
+
+    if ("revive".equalsIgnoreCase(command.getName())) {
+      if (args.length == 1) {
+        return lifeStealProfiles.values().stream()
+            .filter(LifeStealProfile::eliminated)
+            .map(LifeStealProfile::name)
+            .filter(value -> value.toLowerCase(Locale.ROOT).startsWith(args[0].toLowerCase(Locale.ROOT)))
+            .toList();
+      }
+      return List.of();
+    }
+
+    if ("lifesteal".equalsIgnoreCase(command.getName())) {
+      if (args.length == 1) {
+        List<String> completions = new ArrayList<>();
+        completions.add("status");
+        completions.add("help");
+        if (canAdminLifeSteal(sender)) {
+          completions.add("set");
+          completions.add("revive");
+          completions.add("reload");
+        }
+        return completions.stream()
+            .filter(value -> value.startsWith(args[0].toLowerCase(Locale.ROOT)))
+            .toList();
+      }
+      if (args.length == 2 && canAdminLifeSteal(sender)
+          && ("set".equalsIgnoreCase(args[0]) || "revive".equalsIgnoreCase(args[0]) || "status".equalsIgnoreCase(args[0]))) {
+        return Bukkit.getOnlinePlayers().stream()
+            .map(Player::getName)
+            .filter(value -> value.toLowerCase(Locale.ROOT).startsWith(args[1].toLowerCase(Locale.ROOT)))
+            .toList();
+      }
+      if (args.length == 3 && canAdminLifeSteal(sender) && "set".equalsIgnoreCase(args[0])) {
+        return List.of("1", "5", "10", "15", "20").stream()
+            .filter(value -> value.startsWith(args[2].toLowerCase(Locale.ROOT)))
             .toList();
       }
       return List.of();
@@ -386,11 +481,41 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
   }
 
   @EventHandler
-  public void onPlayerJoin(final PlayerJoinEvent event) {
-    if (!isPingOptimizerEnabled()) {
+  public void onPlayerDeath(final PlayerDeathEvent event) {
+    handleLifeStealDeath(event);
+  }
+
+  @EventHandler
+  public void onPlayerRespawn(final PlayerRespawnEvent event) {
+    if (!isLifeStealEnabled()) {
       return;
     }
-    Bukkit.getScheduler().runTaskLater(this, () -> applyTcpNoDelay(event.getPlayer()), 20L);
+    Bukkit.getScheduler().runTaskLater(this, () -> applyLifeStealHealth(event.getPlayer()), 1L);
+  }
+
+  @EventHandler
+  public void onPlayerInteract(final PlayerInteractEvent event) {
+    if (event.getHand() != EquipmentSlot.HAND) {
+      return;
+    }
+    Action action = event.getAction();
+    if (action != Action.RIGHT_CLICK_AIR && action != Action.RIGHT_CLICK_BLOCK) {
+      return;
+    }
+    if (consumeLifeHeart(event.getPlayer(), event.getItem())) {
+      event.setCancelled(true);
+    }
+  }
+
+  @EventHandler
+  public void onPlayerJoin(final PlayerJoinEvent event) {
+    if (isLifeStealEnabled()) {
+      initializeLifeStealProfile(event.getPlayer());
+      Bukkit.getScheduler().runTaskLater(this, () -> applyLifeStealHealth(event.getPlayer()), 1L);
+    }
+    if (isPingOptimizerEnabled()) {
+      Bukkit.getScheduler().runTaskLater(this, () -> applyTcpNoDelay(event.getPlayer()), 20L);
+    }
   }
 
   @EventHandler
@@ -417,6 +542,15 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     }
     getCommand(commandName).setExecutor(this);
     getCommand(commandName).setTabCompleter(this);
+  }
+
+  private void initializeLifeStealKeys() {
+    lifeHeartKey = new NamespacedKey(this, "lifesteal_heart");
+    reviveBeaconKey = new NamespacedKey(this, "lifesteal_revive_beacon");
+    soulPlayerKey = new NamespacedKey(this, "lifesteal_soul_player");
+    soulNameKey = new NamespacedKey(this, "lifesteal_soul_name");
+    heartRecipeKey = new NamespacedKey(this, "lifesteal_heart_recipe");
+    reviveRecipeKey = new NamespacedKey(this, "lifesteal_revive_beacon_recipe");
   }
 
   private void migrateLegacyKitShopData() {
@@ -500,9 +634,13 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     changed |= setDefaultMessage(
         "messages.ping-optimizer-status",
         "&aPing optimizer: &e%state% &8| &aTCP_NODELAY applied: &e%applied%/%online%");
-    changed |= setDefaultMessage("messages.server-stop-usage", "&eUsage: /server stop");
+    changed |= setDefaultMessage("messages.server-stop-usage", "&eUsage: /server stop or /mlcore stop");
     changed |= setDefaultMessage("messages.server-stop-no-permission", "&cOnly server ops can stop the server.");
     changed |= setDefaultMessage("messages.server-stop-starting", "&cStopping the server now.");
+    if ("&eUsage: /server stop".equals(getConfig().getString("messages.server-stop-usage", ""))) {
+      getConfig().set("messages.server-stop-usage", "&eUsage: /server stop or /mlcore stop");
+      changed = true;
+    }
     String prefix = getConfig().getString("messages.prefix", "");
     if (prefix.contains("[&dKitShop&8]")) {
       getConfig().set("messages.prefix", "&8[&bMineLife Core&8]&r ");
@@ -526,6 +664,48 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     if (changed) {
       saveConfig();
     }
+  }
+
+  private void upgradeLifeStealSettings() {
+    boolean changed = false;
+    changed |= setDefaultConfig("lifesteal.enabled", true);
+    changed |= setDefaultConfig("lifesteal.starting-hearts", 10);
+    changed |= setDefaultConfig("lifesteal.maximum-hearts", 20);
+    changed |= setDefaultConfig("lifesteal.lose-hearts-on-non-player-death", false);
+    changed |= setDefaultConfig("lifesteal.eliminate-to-spectator", true);
+    changed |= setDefaultConfig("lifesteal.withdraw.enabled", true);
+    changed |= setDefaultConfig("lifesteal.recipes.heart.enabled", true);
+    changed |= setDefaultConfig("lifesteal.recipes.revive-beacon.enabled", true);
+    changed |= setDefaultMessage("messages.lifesteal-disabled", "&cLifeSteal is disabled.");
+    changed |= setDefaultMessage("messages.lifesteal-status", "&a%player% hearts: &e%hearts%&a/&e%max_hearts%&a. Eliminated: &e%eliminated%&a.");
+    changed |= setDefaultMessage("messages.lifesteal-lost-heart", "&c%player% lost a heart. Hearts left: &e%hearts%&c.");
+    changed |= setDefaultMessage("messages.lifesteal-stole-heart", "&a%killer% stole a heart from &f%victim%&a.");
+    changed |= setDefaultMessage("messages.lifesteal-killer-max", "&e%killer% is already at the heart limit.");
+    changed |= setDefaultMessage("messages.lifesteal-eliminated", "&c%player% has been eliminated.");
+    changed |= setDefaultMessage("messages.lifesteal-withdraw-usage", "&eUsage: /withdraw [amount]");
+    changed |= setDefaultMessage("messages.lifesteal-withdraw-disabled", "&cHeart withdrawing is disabled.");
+    changed |= setDefaultMessage("messages.lifesteal-not-enough-hearts", "&cYou only have &e%extra% &cextra hearts to withdraw.");
+    changed |= setDefaultMessage("messages.lifesteal-withdrew", "&aWithdrew &e%amount% &aheart(s). Hearts left: &e%hearts%&a.");
+    changed |= setDefaultMessage("messages.lifesteal-heart-max", "&cYou are already at the heart limit.");
+    changed |= setDefaultMessage("messages.lifesteal-heart-used", "&aYou gained a heart. Hearts: &e%hearts%&a/&e%max_hearts%&a.");
+    changed |= setDefaultMessage("messages.lifesteal-eliminated-use", "&cYou are eliminated and need to be revived first.");
+    changed |= setDefaultMessage("messages.lifesteal-revive-usage", "&eUsage: /revive <player>");
+    changed |= setDefaultMessage("messages.lifesteal-not-eliminated", "&cThat player is not eliminated.");
+    changed |= setDefaultMessage("messages.lifesteal-missing-revive-items", "&cYou need a Revive Beacon and that player's Soul item.");
+    changed |= setDefaultMessage("messages.lifesteal-revived", "&a%player% has been revived with &e%hearts% &ahearts.");
+    changed |= setDefaultMessage("messages.lifesteal-admin-usage", "&eUsage: /lifesteal [status|set <player> <hearts>|revive <player>|reload]");
+    changed |= setDefaultMessage("messages.lifesteal-set", "&aSet &f%player% &ato &e%hearts% &ahearts.");
+    if (changed) {
+      saveConfig();
+    }
+  }
+
+  private boolean setDefaultConfig(final String path, final Object value) {
+    if (getConfig().isSet(path)) {
+      return false;
+    }
+    getConfig().set(path, value);
+    return true;
   }
 
   private boolean setDefaultMessage(final String path, final String value) {
@@ -665,6 +845,252 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     return sender.isOp() || sender.hasPermission("minelifecore.server.stop");
   }
 
+  private void handleLifeStealCommand(final CommandSender sender, final String[] args) {
+    if (args.length == 0 || "status".equalsIgnoreCase(args[0])) {
+      if (args.length == 0 && sender instanceof Player player) {
+        sendLifeStealStatus(sender, player);
+        return;
+      }
+      if (args.length == 2 && canAdminLifeSteal(sender)) {
+        sendLifeStealStatus(sender, findTarget(args[1]));
+        return;
+      }
+      sender.sendMessage(prefixed("lifesteal-admin-usage"));
+      return;
+    }
+
+    if ("help".equalsIgnoreCase(args[0])) {
+      sender.sendMessage(prefixed("lifesteal-admin-usage"));
+      return;
+    }
+
+    if (!canAdminLifeSteal(sender)) {
+      sender.sendMessage(prefixed("no-permission"));
+      return;
+    }
+
+    if ("reload".equalsIgnoreCase(args[0])) {
+      reloadConfig();
+      upgradeStockMessages();
+      upgradeAccessMessages();
+      upgradeMoneyMessages();
+      upgradeCoreMessages();
+      upgradePingOptimizerSettings();
+      upgradeLifeStealSettings();
+      loadLifeStealData();
+      registerLifeStealRecipes();
+      applyLifeStealToOnlinePlayers();
+      startPingOptimizer();
+      sender.sendMessage(prefixed("reloaded"));
+      return;
+    }
+
+    if ("set".equalsIgnoreCase(args[0]) && args.length == 3) {
+      OfflinePlayer target = findTarget(args[1]);
+      Integer hearts = parseStock(args[2]);
+      if (hearts == null && "0".equals(args[2])) {
+        hearts = 0;
+      }
+      if (hearts == null) {
+        sender.sendMessage(prefixed("invalid-stock"));
+        return;
+      }
+      LifeStealProfile profile = getOrCreateLifeStealProfile(target);
+      setProfileHearts(profile, hearts);
+      saveLifeStealData();
+      applyLifeStealIfOnline(target);
+      sender.sendMessage(formatLifeStealMessage("lifesteal-set", displayName(target), displayName(target), "", profile.hearts(), 0, 0));
+      return;
+    }
+
+    if ("revive".equalsIgnoreCase(args[0]) && args.length == 2) {
+      OfflinePlayer target = findTarget(args[1]);
+      reviveLifeStealPlayer(sender, target, false);
+      return;
+    }
+
+    sender.sendMessage(prefixed("lifesteal-admin-usage"));
+  }
+
+  private void handleWithdrawCommand(final Player player, final String[] args) {
+    if (!isLifeStealEnabled()) {
+      player.sendMessage(prefixed("lifesteal-disabled"));
+      return;
+    }
+    if (!player.hasPermission("minelifecore.lifesteal.use")) {
+      player.sendMessage(prefixed("no-permission"));
+      return;
+    }
+    if (!getConfig().getBoolean("lifesteal.withdraw.enabled", true)) {
+      player.sendMessage(prefixed("lifesteal-withdraw-disabled"));
+      return;
+    }
+    if (args.length > 1) {
+      player.sendMessage(prefixed("lifesteal-withdraw-usage"));
+      return;
+    }
+    Integer amount = args.length == 0 ? 1 : parseStock(args[0]);
+    if (amount == null) {
+      player.sendMessage(prefixed("lifesteal-withdraw-usage"));
+      return;
+    }
+
+    LifeStealProfile profile = initializeLifeStealProfile(player);
+    if (profile.eliminated()) {
+      player.sendMessage(prefixed("lifesteal-eliminated-use"));
+      return;
+    }
+
+    int extraHearts = Math.max(0, profile.hearts() - startingHearts());
+    if (amount > extraHearts) {
+      player.sendMessage(formatLifeStealMessage("lifesteal-not-enough-hearts", player.getName(), player.getName(), "", profile.hearts(), amount, extraHearts));
+      return;
+    }
+
+    ItemStack hearts = createLifeHeartItem(amount);
+    if (!hasRoom(player.getInventory(), hearts)) {
+      player.sendMessage(prefixed("inventory-full"));
+      return;
+    }
+
+    profile.setHearts(profile.hearts() - amount);
+    applyLifeStealHealth(player);
+    saveLifeStealData();
+    player.getInventory().addItem(hearts);
+    player.sendMessage(formatLifeStealMessage("lifesteal-withdrew", player.getName(), player.getName(), "", profile.hearts(), amount, extraHearts - amount));
+  }
+
+  private void handleReviveCommand(final Player player, final String[] args) {
+    if (!isLifeStealEnabled()) {
+      player.sendMessage(prefixed("lifesteal-disabled"));
+      return;
+    }
+    if (!player.hasPermission("minelifecore.lifesteal.use")) {
+      player.sendMessage(prefixed("no-permission"));
+      return;
+    }
+    if (args.length != 1) {
+      player.sendMessage(prefixed("lifesteal-revive-usage"));
+      return;
+    }
+
+    OfflinePlayer target = findTarget(args[0]);
+    LifeStealProfile targetProfile = getOrCreateLifeStealProfile(target);
+    if (!targetProfile.eliminated()) {
+      player.sendMessage(prefixed("lifesteal-not-eliminated"));
+      return;
+    }
+
+    if (!consumeReviveItems(player, target.getUniqueId())) {
+      player.sendMessage(prefixed("lifesteal-missing-revive-items"));
+      return;
+    }
+
+    reviveLifeStealPlayer(player, target, true);
+  }
+
+  private void handleLifeStealDeath(final PlayerDeathEvent event) {
+    if (!isLifeStealEnabled()) {
+      return;
+    }
+
+    Player victim = event.getEntity();
+    Player killer = victim.getKiller();
+    boolean playerKill = killer != null && !killer.getUniqueId().equals(victim.getUniqueId());
+    boolean shouldLoseHeart = playerKill || getConfig().getBoolean("lifesteal.lose-hearts-on-non-player-death", false);
+    if (!shouldLoseHeart) {
+      return;
+    }
+
+    LifeStealProfile victimProfile = initializeLifeStealProfile(victim);
+    if (victimProfile.hearts() <= 0 || victimProfile.eliminated()) {
+      return;
+    }
+
+    victimProfile.setHearts(Math.max(0, victimProfile.hearts() - 1));
+    if (victimProfile.hearts() <= 0) {
+      victimProfile.setEliminated(true);
+      event.getDrops().add(createSoulItem(victim));
+      Bukkit.getScheduler().runTaskLater(this, () -> applyLifeStealHealth(victim), 1L);
+      broadcastLifeSteal("lifesteal-eliminated", victim.getName(), victim.getName(), "", 0, 0, 0);
+    } else {
+      broadcastLifeSteal("lifesteal-lost-heart", victim.getName(), victim.getName(), "", victimProfile.hearts(), 0, 0);
+    }
+
+    if (playerKill) {
+      LifeStealProfile killerProfile = initializeLifeStealProfile(killer);
+      if (!killerProfile.eliminated() && killerProfile.hearts() < maximumHearts()) {
+        killerProfile.setHearts(Math.min(maximumHearts(), killerProfile.hearts() + 1));
+        applyLifeStealHealth(killer);
+        broadcastLifeSteal("lifesteal-stole-heart", victim.getName(), victim.getName(), killer.getName(), killerProfile.hearts(), 0, 0);
+      } else {
+        killer.sendMessage(formatLifeStealMessage("lifesteal-killer-max", victim.getName(), victim.getName(), killer.getName(), killerProfile.hearts(), 0, 0));
+      }
+    }
+
+    saveLifeStealData();
+  }
+
+  private boolean consumeLifeHeart(final Player player, final ItemStack item) {
+    if (!isLifeHeartItem(item)) {
+      return false;
+    }
+    if (!isLifeStealEnabled()) {
+      player.sendMessage(prefixed("lifesteal-disabled"));
+      return true;
+    }
+    if (!player.hasPermission("minelifecore.lifesteal.use")) {
+      player.sendMessage(prefixed("no-permission"));
+      return true;
+    }
+
+    LifeStealProfile profile = initializeLifeStealProfile(player);
+    if (profile.eliminated()) {
+      player.sendMessage(prefixed("lifesteal-eliminated-use"));
+      return true;
+    }
+    if (profile.hearts() >= maximumHearts()) {
+      player.sendMessage(prefixed("lifesteal-heart-max"));
+      return true;
+    }
+
+    removeOneFromMainHand(player);
+    profile.setHearts(Math.min(maximumHearts(), profile.hearts() + 1));
+    applyLifeStealHealth(player);
+    saveLifeStealData();
+    player.sendMessage(formatLifeStealMessage("lifesteal-heart-used", player.getName(), player.getName(), "", profile.hearts(), 1, 0));
+    return true;
+  }
+
+  private void sendLifeStealStatus(final CommandSender sender, final OfflinePlayer target) {
+    LifeStealProfile profile = getOrCreateLifeStealProfile(target);
+    sender.sendMessage(formatLifeStealMessage("lifesteal-status", displayName(target), displayName(target), "", profile.hearts(), 0, 0)
+        .replace("%eliminated%", String.valueOf(profile.eliminated())));
+  }
+
+  private void reviveLifeStealPlayer(final CommandSender sender, final OfflinePlayer target, final boolean broadcast) {
+    LifeStealProfile profile = getOrCreateLifeStealProfile(target);
+    if (!profile.eliminated()) {
+      sender.sendMessage(prefixed("lifesteal-not-eliminated"));
+      return;
+    }
+
+    profile.setHearts(startingHearts());
+    profile.setEliminated(false);
+    saveLifeStealData();
+    applyLifeStealIfOnline(target);
+    String messageText = formatLifeStealMessage("lifesteal-revived", displayName(target), displayName(target), "", profile.hearts(), 0, 0);
+    if (broadcast) {
+      Bukkit.broadcastMessage(messageText);
+    } else {
+      sender.sendMessage(messageText);
+    }
+  }
+
+  private boolean canAdminLifeSteal(final CommandSender sender) {
+    return sender.isOp() || sender.hasPermission("minelifecore.lifesteal.admin");
+  }
+
   private void handleCoreCommand(final Player player, final String label, final String[] args) {
     if (args.length == 0 || "status".equalsIgnoreCase(args[0])) {
       sendCoreStatus(player);
@@ -681,11 +1107,19 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       upgradeMoneyMessages();
       upgradeCoreMessages();
       upgradePingOptimizerSettings();
+      upgradeLifeStealSettings();
       itemsPerPage = Math.min(45, Math.max(9, getConfig().getInt("settings.items-per-page", 45)));
       setupEconomy();
       loadListings();
+      loadLifeStealData();
+      registerLifeStealRecipes();
+      applyLifeStealToOnlinePlayers();
       startPingOptimizer();
       player.sendMessage(prefixed("reloaded"));
+      return;
+    }
+    if ("stop".equalsIgnoreCase(args[0])) {
+      handleServerCommand(player, new String[] {"stop"});
       return;
     }
     sendCoreHelp(player, label);
@@ -717,10 +1151,345 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     player.sendMessage(color("&e/ping [player] &7- show ping"));
     player.sendMessage(color("&e/kitshop &7- open the kit shop"));
     player.sendMessage(color("&e/money &7- show your balance"));
-    if (isOperator(player)) {
+    if (isOperator(player) || player.hasPermission("minelifecore.admin")) {
       player.sendMessage(color("&e/" + label + " reload &7- reload MineLife Core"));
+    }
+    if (canStopServer(player)) {
+      player.sendMessage(color("&e/server stop &7- stop the server"));
+      player.sendMessage(color("&e/" + label + " stop &7- stop the server"));
+    }
+    if (isOperator(player)) {
       player.sendMessage(color("&e/money <player> add/remove <amount> &7- manage money"));
     }
+  }
+
+  private void loadLifeStealData() {
+    lifeStealProfiles.clear();
+    if (lifeStealFile == null || !lifeStealFile.exists()) {
+      return;
+    }
+
+    YamlConfiguration yaml = YamlConfiguration.loadConfiguration(lifeStealFile);
+    ConfigurationSection section = yaml.getConfigurationSection("players");
+    if (section == null) {
+      return;
+    }
+
+    for (String idText : section.getKeys(false)) {
+      try {
+        UUID playerId = UUID.fromString(idText);
+        String name = section.getString(idText + ".name", playerId.toString());
+        int hearts = Math.max(0, Math.min(maximumHearts(), section.getInt(idText + ".hearts", startingHearts())));
+        boolean eliminated = section.getBoolean(idText + ".eliminated", hearts <= 0);
+        lifeStealProfiles.put(playerId, new LifeStealProfile(name, hearts, eliminated));
+      } catch (IllegalArgumentException exception) {
+        getLogger().warning("Skipped invalid LifeSteal player id: " + idText);
+      }
+    }
+  }
+
+  private void saveLifeStealData() {
+    if (lifeStealFile == null) {
+      return;
+    }
+    if (!getDataFolder().exists() && !getDataFolder().mkdirs()) {
+      getLogger().warning("Could not create MineLifeCore data folder for lifesteal.yml.");
+      return;
+    }
+
+    YamlConfiguration yaml = new YamlConfiguration();
+    for (Map.Entry<UUID, LifeStealProfile> entry : lifeStealProfiles.entrySet()) {
+      String path = "players." + entry.getKey();
+      LifeStealProfile profile = entry.getValue();
+      yaml.set(path + ".name", profile.name());
+      yaml.set(path + ".hearts", profile.hearts());
+      yaml.set(path + ".eliminated", profile.eliminated());
+    }
+
+    try {
+      yaml.save(lifeStealFile);
+    } catch (IOException exception) {
+      getLogger().log(Level.SEVERE, "Could not save LifeSteal player data.", exception);
+    }
+  }
+
+  private void registerLifeStealRecipes() {
+    removeLifeStealRecipes();
+    if (!isLifeStealEnabled()) {
+      return;
+    }
+
+    if (getConfig().getBoolean("lifesteal.recipes.heart.enabled", true)) {
+      ShapedRecipe heartRecipe = new ShapedRecipe(heartRecipeKey, createLifeHeartItem(1));
+      heartRecipe.shape("RDR", "DTD", "RDR");
+      heartRecipe.setIngredient('R', Material.REDSTONE_BLOCK);
+      heartRecipe.setIngredient('D', Material.DIAMOND_BLOCK);
+      heartRecipe.setIngredient('T', Material.TOTEM_OF_UNDYING);
+      addRecipeSafely(heartRecipe);
+    }
+
+    if (getConfig().getBoolean("lifesteal.recipes.revive-beacon.enabled", true)) {
+      ShapedRecipe reviveRecipe = new ShapedRecipe(reviveRecipeKey, createReviveBeaconItem(1));
+      reviveRecipe.shape("SNS", "DBD", "STS");
+      reviveRecipe.setIngredient('S', Material.SOUL_SAND);
+      reviveRecipe.setIngredient('N', Material.NETHER_STAR);
+      reviveRecipe.setIngredient('D', Material.DIAMOND_BLOCK);
+      reviveRecipe.setIngredient('B', Material.BEACON);
+      reviveRecipe.setIngredient('T', Material.TOTEM_OF_UNDYING);
+      addRecipeSafely(reviveRecipe);
+    }
+  }
+
+  private void removeLifeStealRecipes() {
+    if (heartRecipeKey != null) {
+      Bukkit.removeRecipe(heartRecipeKey);
+    }
+    if (reviveRecipeKey != null) {
+      Bukkit.removeRecipe(reviveRecipeKey);
+    }
+  }
+
+  private void addRecipeSafely(final ShapedRecipe recipe) {
+    try {
+      Bukkit.addRecipe(recipe);
+    } catch (IllegalStateException exception) {
+      getLogger().fine("LifeSteal recipe was already registered: " + recipe.getKey());
+    }
+  }
+
+  private void applyLifeStealToOnlinePlayers() {
+    if (!isLifeStealEnabled()) {
+      return;
+    }
+    for (Player player : Bukkit.getOnlinePlayers()) {
+      initializeLifeStealProfile(player);
+      applyLifeStealHealth(player);
+    }
+  }
+
+  private void applyLifeStealIfOnline(final OfflinePlayer player) {
+    Player onlinePlayer = Bukkit.getPlayer(player.getUniqueId());
+    if (onlinePlayer != null) {
+      applyLifeStealHealth(onlinePlayer);
+    }
+  }
+
+  private void applyLifeStealHealth(final Player player) {
+    if (!isLifeStealEnabled()) {
+      return;
+    }
+
+    LifeStealProfile profile = initializeLifeStealProfile(player);
+    AttributeInstance maxHealth = player.getAttribute(Attribute.MAX_HEALTH);
+    if (maxHealth != null) {
+      double hearts = Math.max(1, Math.min(maximumHearts(), Math.max(0, profile.hearts())));
+      double healthValue = hearts * 2.0;
+      maxHealth.setBaseValue(healthValue);
+      if (!player.isDead() && player.getHealth() > healthValue) {
+        player.setHealth(healthValue);
+      }
+    }
+
+    if (profile.eliminated() && getConfig().getBoolean("lifesteal.eliminate-to-spectator", true)) {
+      player.setGameMode(GameMode.SPECTATOR);
+    } else if (!profile.eliminated() && player.getGameMode() == GameMode.SPECTATOR) {
+      player.setGameMode(GameMode.SURVIVAL);
+    }
+  }
+
+  private LifeStealProfile initializeLifeStealProfile(final Player player) {
+    LifeStealProfile profile = lifeStealProfiles.get(player.getUniqueId());
+    if (profile == null) {
+      int currentHearts = currentBaseHearts(player);
+      int starting = startingHearts();
+      int initialHearts = currentHearts > 0 ? Math.min(maximumHearts(), currentHearts) : starting;
+      profile = new LifeStealProfile(player.getName(), initialHearts, initialHearts <= 0);
+      lifeStealProfiles.put(player.getUniqueId(), profile);
+      saveLifeStealData();
+    } else {
+      profile.setName(player.getName());
+    }
+    return profile;
+  }
+
+  private LifeStealProfile getOrCreateLifeStealProfile(final OfflinePlayer player) {
+    if (player instanceof Player onlinePlayer) {
+      return initializeLifeStealProfile(onlinePlayer);
+    }
+    return lifeStealProfiles.computeIfAbsent(
+        player.getUniqueId(),
+        ignored -> new LifeStealProfile(displayName(player), startingHearts(), false));
+  }
+
+  private void setProfileHearts(final LifeStealProfile profile, final int hearts) {
+    int clampedHearts = Math.max(0, Math.min(maximumHearts(), hearts));
+    profile.setHearts(clampedHearts);
+    profile.setEliminated(clampedHearts <= 0);
+  }
+
+  private int currentBaseHearts(final Player player) {
+    AttributeInstance maxHealth = player.getAttribute(Attribute.MAX_HEALTH);
+    if (maxHealth == null) {
+      return startingHearts();
+    }
+    return Math.max(1, (int) Math.round(maxHealth.getBaseValue() / 2.0));
+  }
+
+  private boolean isLifeStealEnabled() {
+    return getConfig().getBoolean("lifesteal.enabled", true);
+  }
+
+  private int startingHearts() {
+    return Math.max(1, getConfig().getInt("lifesteal.starting-hearts", 10));
+  }
+
+  private int maximumHearts() {
+    return Math.max(startingHearts(), getConfig().getInt("lifesteal.maximum-hearts", 20));
+  }
+
+  private ItemStack createLifeHeartItem(final int amount) {
+    ItemStack item = new ItemStack(Material.RED_DYE, Math.max(1, amount));
+    ItemMeta meta = item.getItemMeta();
+    if (meta != null) {
+      meta.setDisplayName(color("&cLife Heart"));
+      meta.setLore(List.of(
+          color("&7Right-click to gain one max heart."),
+          color("&7Can be crafted or withdrawn with /withdraw.")));
+      meta.getPersistentDataContainer().set(lifeHeartKey, PersistentDataType.BYTE, (byte) 1);
+      item.setItemMeta(meta);
+    }
+    return item;
+  }
+
+  private ItemStack createReviveBeaconItem(final int amount) {
+    ItemStack item = new ItemStack(Material.BEACON, Math.max(1, amount));
+    ItemMeta meta = item.getItemMeta();
+    if (meta != null) {
+      meta.setDisplayName(color("&bRevive Beacon"));
+      meta.setLore(List.of(
+          color("&7Use /revive <player> while holding"),
+          color("&7this and that player's Soul item.")));
+      meta.getPersistentDataContainer().set(reviveBeaconKey, PersistentDataType.BYTE, (byte) 1);
+      item.setItemMeta(meta);
+    }
+    return item;
+  }
+
+  private ItemStack createSoulItem(final Player player) {
+    ItemStack item = new ItemStack(Material.ECHO_SHARD);
+    ItemMeta meta = item.getItemMeta();
+    if (meta != null) {
+      meta.setDisplayName(color("&5Soul of " + player.getName()));
+      meta.setLore(List.of(
+          color("&7Required to revive this eliminated player."),
+          color("&7Use with a Revive Beacon.")));
+      PersistentDataContainer data = meta.getPersistentDataContainer();
+      data.set(soulPlayerKey, PersistentDataType.STRING, player.getUniqueId().toString());
+      data.set(soulNameKey, PersistentDataType.STRING, player.getName());
+      item.setItemMeta(meta);
+    }
+    return item;
+  }
+
+  private boolean isLifeHeartItem(final ItemStack item) {
+    return hasByteTag(item, lifeHeartKey);
+  }
+
+  private boolean isReviveBeaconItem(final ItemStack item) {
+    return hasByteTag(item, reviveBeaconKey);
+  }
+
+  private boolean isSoulItemFor(final ItemStack item, final UUID playerId) {
+    if (!isRealItem(item) || !item.hasItemMeta()) {
+      return false;
+    }
+    String soulId = item.getItemMeta().getPersistentDataContainer().get(soulPlayerKey, PersistentDataType.STRING);
+    return playerId.toString().equals(soulId);
+  }
+
+  private boolean hasByteTag(final ItemStack item, final NamespacedKey key) {
+    return isRealItem(item)
+        && item.hasItemMeta()
+        && item.getItemMeta().getPersistentDataContainer().has(key, PersistentDataType.BYTE);
+  }
+
+  private boolean consumeReviveItems(final Player player, final UUID targetId) {
+    PlayerInventory inventory = player.getInventory();
+    int beaconSlot = -1;
+    int soulSlot = -1;
+    ItemStack[] contents = inventory.getContents();
+    for (int slot = 0; slot < contents.length; slot++) {
+      ItemStack item = contents[slot];
+      if (beaconSlot == -1 && isReviveBeaconItem(item)) {
+        beaconSlot = slot;
+      }
+      if (soulSlot == -1 && isSoulItemFor(item, targetId)) {
+        soulSlot = slot;
+      }
+      if (beaconSlot != -1 && soulSlot != -1) {
+        break;
+      }
+    }
+
+    if (beaconSlot == -1 || soulSlot == -1) {
+      return false;
+    }
+    decrementInventorySlot(inventory, beaconSlot);
+    decrementInventorySlot(inventory, soulSlot);
+    return true;
+  }
+
+  private void decrementInventorySlot(final PlayerInventory inventory, final int slot) {
+    ItemStack item = inventory.getItem(slot);
+    if (!isRealItem(item)) {
+      return;
+    }
+    if (item.getAmount() <= 1) {
+      inventory.setItem(slot, null);
+    } else {
+      item.setAmount(item.getAmount() - 1);
+    }
+  }
+
+  private void removeOneFromMainHand(final Player player) {
+    ItemStack item = player.getInventory().getItemInMainHand();
+    if (!isRealItem(item)) {
+      return;
+    }
+    if (item.getAmount() <= 1) {
+      player.getInventory().setItemInMainHand(null);
+    } else {
+      item.setAmount(item.getAmount() - 1);
+    }
+  }
+
+  private void broadcastLifeSteal(
+      final String key,
+      final String player,
+      final String victim,
+      final String killer,
+      final int hearts,
+      final int amount,
+      final int extra) {
+    Bukkit.broadcastMessage(formatLifeStealMessage(key, player, victim, killer, hearts, amount, extra));
+  }
+
+  private String formatLifeStealMessage(
+      final String key,
+      final String player,
+      final String victim,
+      final String killer,
+      final int hearts,
+      final int amount,
+      final int extra) {
+    return color(message("prefix") + message(key)
+        .replace("%player%", player)
+        .replace("%victim%", victim)
+        .replace("%killer%", killer)
+        .replace("%hearts%", String.valueOf(Math.max(0, hearts)))
+        .replace("%max_hearts%", String.valueOf(maximumHearts()))
+        .replace("%amount%", String.valueOf(Math.max(0, amount)))
+        .replace("%extra%", String.valueOf(Math.max(0, extra))));
   }
 
   private void startPingOptimizer() {
@@ -1297,6 +2066,42 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
   }
 
   private record KitAddRequest(double price, int stock) {
+  }
+
+  private static final class LifeStealProfile {
+    private String name;
+    private int hearts;
+    private boolean eliminated;
+
+    private LifeStealProfile(final String name, final int hearts, final boolean eliminated) {
+      this.name = name;
+      this.hearts = hearts;
+      this.eliminated = eliminated;
+    }
+
+    private String name() {
+      return name;
+    }
+
+    private void setName(final String name) {
+      this.name = name;
+    }
+
+    private int hearts() {
+      return hearts;
+    }
+
+    private void setHearts(final int hearts) {
+      this.hearts = hearts;
+    }
+
+    private boolean eliminated() {
+      return eliminated;
+    }
+
+    private void setEliminated(final boolean eliminated) {
+      this.eliminated = eliminated;
+    }
   }
 
   private static final class KitInventoryHolder implements InventoryHolder {

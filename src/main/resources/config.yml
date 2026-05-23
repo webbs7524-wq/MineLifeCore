@@ -4,6 +4,20 @@ settings:
     enabled: true
     reapply-seconds: 60
 
+lifesteal:
+  enabled: true
+  starting-hearts: 10
+  maximum-hearts: 20
+  lose-hearts-on-non-player-death: false
+  eliminate-to-spectator: true
+  withdraw:
+    enabled: true
+  recipes:
+    heart:
+      enabled: true
+    revive-beacon:
+      enabled: true
+
 messages:
   prefix: "&8[&bMineLife Core&8]&r "
   players-only: "&cOnly players can use this command."
@@ -35,6 +49,25 @@ messages:
   core-status: "&aTPS: &e%tps% &8| &aOnline: &e%online% &8| &aAverage ping: &e%avg_ping%ms &8| &aHighest ping: &e%max_ping%ms"
   core-safe-optimizer: "&aSafe latency monitor is active. No mobs, chunks, items, or gameplay settings are changed."
   ping-optimizer-status: "&aPing optimizer: &e%state% &8| &aTCP_NODELAY applied: &e%applied%/%online%"
-  server-stop-usage: "&eUsage: /server stop"
+  server-stop-usage: "&eUsage: /server stop or /mlcore stop"
   server-stop-no-permission: "&cOnly server ops can stop the server."
   server-stop-starting: "&cStopping the server now."
+  lifesteal-disabled: "&cLifeSteal is disabled."
+  lifesteal-status: "&a%player% hearts: &e%hearts%&a/&e%max_hearts%&a. Eliminated: &e%eliminated%&a."
+  lifesteal-lost-heart: "&c%player% lost a heart. Hearts left: &e%hearts%&c."
+  lifesteal-stole-heart: "&a%killer% stole a heart from &f%victim%&a."
+  lifesteal-killer-max: "&e%killer% is already at the heart limit."
+  lifesteal-eliminated: "&c%player% has been eliminated."
+  lifesteal-withdraw-usage: "&eUsage: /withdraw [amount]"
+  lifesteal-withdraw-disabled: "&cHeart withdrawing is disabled."
+  lifesteal-not-enough-hearts: "&cYou only have &e%extra% &cextra hearts to withdraw."
+  lifesteal-withdrew: "&aWithdrew &e%amount% &aheart(s). Hearts left: &e%hearts%&a."
+  lifesteal-heart-max: "&cYou are already at the heart limit."
+  lifesteal-heart-used: "&aYou gained a heart. Hearts: &e%hearts%&a/&e%max_hearts%&a."
+  lifesteal-eliminated-use: "&cYou are eliminated and need to be revived first."
+  lifesteal-revive-usage: "&eUsage: /revive <player>"
+  lifesteal-not-eliminated: "&cThat player is not eliminated."
+  lifesteal-missing-revive-items: "&cYou need a Revive Beacon and that player's Soul item."
+  lifesteal-revived: "&a%player% has been revived with &e%hearts% &ahearts."
+  lifesteal-admin-usage: "&eUsage: /lifesteal [status|set <player> <hearts>|revive <player>|reload]"
+  lifesteal-set: "&aSet &f%player% &ato &e%hearts% &ahearts."
