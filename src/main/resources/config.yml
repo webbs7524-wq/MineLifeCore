@@ -9,7 +9,7 @@ lifesteal:
   starting-hearts: 10
   minimum-withdraw-hearts: 1
   maximum-hearts: 20
-  lose-hearts-on-non-player-death: false
+  lose-hearts-on-non-player-death: true
   ban-on-elimination: true
   ban-reason: "Eliminated from LifeSteal."
   eliminate-to-spectator: false

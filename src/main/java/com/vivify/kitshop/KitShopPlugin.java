@@ -681,7 +681,11 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     changed |= setDefaultConfig("lifesteal.starting-hearts", 10);
     changed |= setDefaultConfig("lifesteal.minimum-withdraw-hearts", 1);
     changed |= setDefaultConfig("lifesteal.maximum-hearts", 20);
-    changed |= setDefaultConfig("lifesteal.lose-hearts-on-non-player-death", false);
+    changed |= setDefaultConfig("lifesteal.lose-hearts-on-non-player-death", true);
+    if (!getConfig().getBoolean("lifesteal.lose-hearts-on-non-player-death", true)) {
+      getConfig().set("lifesteal.lose-hearts-on-non-player-death", true);
+      changed = true;
+    }
     changed |= setDefaultConfig("lifesteal.ban-on-elimination", true);
     changed |= setDefaultConfig("lifesteal.ban-reason", "Eliminated from LifeSteal.");
     changed |= setDefaultConfig("lifesteal.eliminate-to-spectator", false);
@@ -1065,10 +1069,10 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     }
 
     victimProfile.setHearts(Math.max(0, victimProfile.hearts() - 1));
-    event.getDrops().add(createLifeHeartItem(1));
+    dropLifeStealItem(victim, createLifeHeartItem(1));
     if (victimProfile.hearts() <= 0) {
       victimProfile.setEliminated(true);
-      event.getDrops().add(createSoulItem(victim));
+      dropLifeStealItem(victim, createSoulItem(victim));
       Bukkit.getScheduler().runTaskLater(this, () -> banEliminatedPlayer(victim), 1L);
       broadcastLifeSteal("lifesteal-eliminated", victim.getName(), victim.getName(), "", 0, 0, 0);
     } else {
@@ -1111,6 +1115,13 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     saveLifeStealData();
     player.sendMessage(formatLifeStealMessage("lifesteal-heart-used", player.getName(), player.getName(), "", profile.hearts(), 1, 0));
     return true;
+  }
+
+  private void dropLifeStealItem(final Player player, final ItemStack item) {
+    if (!isRealItem(item)) {
+      return;
+    }
+    player.getWorld().dropItemNaturally(player.getLocation(), item);
   }
 
   private void sendLifeStealStatus(final CommandSender sender, final OfflinePlayer target) {
