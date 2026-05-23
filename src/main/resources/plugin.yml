@@ -35,7 +35,7 @@ commands:
     usage: "/revive <player>"
   lifesteal:
     description: Shows or manages MineLife Core LifeSteal data.
-    usage: "/lifesteal [status|set <player> <hearts>|revive <player>|reload]"
+    usage: "/lifesteal [status|set <player> <hearts>|revive <player>|unban <player>|reload]"
     aliases: [lscore]
 permissions:
   kitshop.use:

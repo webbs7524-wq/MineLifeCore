@@ -308,6 +308,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
         if (canAdminLifeSteal(sender)) {
           completions.add("set");
           completions.add("revive");
+          completions.add("unban");
           completions.add("reload");
         }
         return completions.stream()
@@ -315,9 +316,17 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
             .toList();
       }
       if (args.length == 2 && canAdminLifeSteal(sender)
-          && ("set".equalsIgnoreCase(args[0]) || "revive".equalsIgnoreCase(args[0]) || "status".equalsIgnoreCase(args[0]))) {
+          && ("set".equalsIgnoreCase(args[0]) || "status".equalsIgnoreCase(args[0]))) {
         return Bukkit.getOnlinePlayers().stream()
             .map(Player::getName)
+            .filter(value -> value.toLowerCase(Locale.ROOT).startsWith(args[1].toLowerCase(Locale.ROOT)))
+            .toList();
+      }
+      if (args.length == 2 && canAdminLifeSteal(sender)
+          && ("revive".equalsIgnoreCase(args[0]) || "unban".equalsIgnoreCase(args[0]))) {
+        return lifeStealProfiles.values().stream()
+            .filter(LifeStealProfile::eliminated)
+            .map(LifeStealProfile::name)
             .filter(value -> value.toLowerCase(Locale.ROOT).startsWith(args[1].toLowerCase(Locale.ROOT)))
             .toList();
       }
@@ -753,7 +762,14 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     changed |= setDefaultMessage("messages.lifesteal-not-eliminated", "&cThat player is not eliminated.");
     changed |= setDefaultMessage("messages.lifesteal-missing-revive-items", "&cYou need a Revive Beacon and that player's Soul item.");
     changed |= setDefaultMessage("messages.lifesteal-revived", "&a%player% has been revived with &e%hearts% &ahearts.");
-    changed |= setDefaultMessage("messages.lifesteal-admin-usage", "&eUsage: /lifesteal [status|set <player> <hearts>|revive <player>|reload]");
+    changed |= setDefaultMessage("messages.lifesteal-unbanned", "&a%player% has been unbanned from LifeSteal with &e%hearts% &ahearts.");
+    String lifeStealAdminUsage = "&eUsage: /lifesteal [status|set <player> <hearts>|revive <player>|unban <player>|reload]";
+    changed |= setDefaultMessage("messages.lifesteal-admin-usage", lifeStealAdminUsage);
+    if ("&eUsage: /lifesteal [status|set <player> <hearts>|revive <player>|reload]"
+        .equals(getConfig().getString("messages.lifesteal-admin-usage", ""))) {
+      getConfig().set("messages.lifesteal-admin-usage", lifeStealAdminUsage);
+      changed = true;
+    }
     changed |= setDefaultMessage("messages.lifesteal-set", "&aSet &f%player% &ato &e%hearts% &ahearts.");
     if (changed) {
       saveConfig();
@@ -969,6 +985,12 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       return;
     }
 
+    if ("unban".equalsIgnoreCase(args[0]) && args.length == 2) {
+      OfflinePlayer target = findTarget(args[1]);
+      unbanLifeStealPlayer(sender, target, args[1]);
+      return;
+    }
+
     sender.sendMessage(prefixed("lifesteal-admin-usage"));
   }
 
@@ -1164,6 +1186,32 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     } else {
       sender.sendMessage(messageText);
     }
+  }
+
+  private void unbanLifeStealPlayer(
+      final CommandSender sender,
+      final OfflinePlayer target,
+      final String requestedName) {
+    LifeStealProfile profile = getOrCreateLifeStealProfile(target);
+    if (profile.eliminated() || profile.hearts() < 1) {
+      setProfileHearts(profile, startingHearts());
+    } else {
+      profile.setEliminated(false);
+    }
+    saveLifeStealData();
+    pardonLifeStealPlayer(displayName(target));
+    if (requestedName != null && !requestedName.equalsIgnoreCase(displayName(target))) {
+      pardonLifeStealPlayer(requestedName);
+    }
+    applyLifeStealIfOnline(target);
+    sender.sendMessage(formatLifeStealMessage(
+        "lifesteal-unbanned",
+        displayName(target),
+        displayName(target),
+        "",
+        profile.hearts(),
+        0,
+        0));
   }
 
   private boolean canAdminLifeSteal(final CommandSender sender) {

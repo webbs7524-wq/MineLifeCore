@@ -80,5 +80,6 @@ messages:
   lifesteal-not-eliminated: "&cThat player is not eliminated."
   lifesteal-missing-revive-items: "&cYou need a Revive Beacon and that player's Soul item."
   lifesteal-revived: "&a%player% has been revived with &e%hearts% &ahearts."
-  lifesteal-admin-usage: "&eUsage: /lifesteal [status|set <player> <hearts>|revive <player>|reload]"
+  lifesteal-unbanned: "&a%player% has been unbanned from LifeSteal with &e%hearts% &ahearts."
+  lifesteal-admin-usage: "&eUsage: /lifesteal [status|set <player> <hearts>|revive <player>|unban <player>|reload]"
   lifesteal-set: "&aSet &f%player% &ato &e%hearts% &ahearts."
