@@ -136,11 +136,11 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       final Command command,
       final String label,
       final String[] args) {
-    if ("server".equalsIgnoreCase(command.getName())) {
+    if (matchesCommand(command, label, "server")) {
       handleServerCommand(sender, args);
       return true;
     }
-    if ("lifesteal".equalsIgnoreCase(command.getName())) {
+    if (matchesCommand(command, label, "lifesteal", "lscore")) {
       handleLifeStealCommand(sender, args);
       return true;
     }
@@ -150,25 +150,28 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       return true;
     }
 
-    if ("money".equalsIgnoreCase(command.getName())) {
+    if (matchesCommand(command, label, "money")) {
       handleMoneyCommand(player, args);
       return true;
     }
-    if ("ping".equalsIgnoreCase(command.getName())) {
+    if (matchesCommand(command, label, "ping", "mlping")) {
       handlePingCommand(player, args);
       return true;
     }
-    if ("minelifecore".equalsIgnoreCase(command.getName())) {
+    if (matchesCommand(command, label, "minelifecore", "mlcore", "minecore")) {
       handleCoreCommand(player, label, args);
       return true;
     }
-    if ("withdraw".equalsIgnoreCase(command.getName())) {
+    if (matchesCommand(command, label, "withdraw", "withdrawheart")) {
       handleWithdrawCommand(player, args);
       return true;
     }
-    if ("revive".equalsIgnoreCase(command.getName())) {
+    if (matchesCommand(command, label, "revive")) {
       handleReviveCommand(player, args);
       return true;
+    }
+    if (!matchesCommand(command, label, "kitshop", "kshop")) {
+      return false;
     }
 
     if (args.length == 0) {
@@ -240,7 +243,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       final Command command,
       final String alias,
       final String[] args) {
-    if ("minelifecore".equalsIgnoreCase(command.getName())) {
+    if (matchesCommand(command, alias, "minelifecore", "mlcore", "minecore")) {
       if (args.length == 1) {
         List<String> completions = new ArrayList<>();
         completions.add("status");
@@ -258,7 +261,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       return List.of();
     }
 
-    if ("ping".equalsIgnoreCase(command.getName())) {
+    if (matchesCommand(command, alias, "ping", "mlping")) {
       if (args.length == 1 && sender.isOp()) {
         return Bukkit.getOnlinePlayers().stream()
             .map(Player::getName)
@@ -268,7 +271,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       return List.of();
     }
 
-    if ("server".equalsIgnoreCase(command.getName())) {
+    if (matchesCommand(command, alias, "server")) {
       if (args.length == 1 && canStopServer(sender)) {
         return List.of("stop").stream()
             .filter(value -> value.startsWith(args[0].toLowerCase(Locale.ROOT)))
@@ -277,7 +280,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       return List.of();
     }
 
-    if ("withdraw".equalsIgnoreCase(command.getName())) {
+    if (matchesCommand(command, alias, "withdraw", "withdrawheart")) {
       if (args.length == 1) {
         return List.of("1", "2", "5", "10").stream()
             .filter(value -> value.startsWith(args[0].toLowerCase(Locale.ROOT)))
@@ -286,7 +289,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       return List.of();
     }
 
-    if ("revive".equalsIgnoreCase(command.getName())) {
+    if (matchesCommand(command, alias, "revive")) {
       if (args.length == 1) {
         return lifeStealProfiles.values().stream()
             .filter(LifeStealProfile::eliminated)
@@ -297,7 +300,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       return List.of();
     }
 
-    if ("lifesteal".equalsIgnoreCase(command.getName())) {
+    if (matchesCommand(command, alias, "lifesteal", "lscore")) {
       if (args.length == 1) {
         List<String> completions = new ArrayList<>();
         completions.add("status");
@@ -326,7 +329,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       return List.of();
     }
 
-    if ("money".equalsIgnoreCase(command.getName())) {
+    if (matchesCommand(command, alias, "money")) {
       if (!sender.isOp()) {
         return List.of();
       }
@@ -352,6 +355,10 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       if (args.length == 3 && ("add".equalsIgnoreCase(args[1]) || "remove".equalsIgnoreCase(args[1]))) {
         return List.of("100", "1000", "1000000");
       }
+      return List.of();
+    }
+
+    if (!matchesCommand(command, alias, "kitshop", "kshop")) {
       return List.of();
     }
 
@@ -551,6 +558,15 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     }
     getCommand(commandName).setExecutor(this);
     getCommand(commandName).setTabCompleter(this);
+  }
+
+  private boolean matchesCommand(final Command command, final String label, final String... names) {
+    for (String name : names) {
+      if (name.equalsIgnoreCase(command.getName()) || name.equalsIgnoreCase(label)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private void initializeLifeStealKeys() {
