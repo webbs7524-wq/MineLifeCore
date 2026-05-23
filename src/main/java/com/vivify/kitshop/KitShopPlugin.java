@@ -186,7 +186,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       }
       case "edit", "admin" -> {
         if (!isOperator(player)) {
-          player.sendMessage(prefixed("no-permission"));
+          player.sendMessage(prefixed("kitshop-admin-only"));
           return true;
         }
         openAdminShop(player, 0);
@@ -194,7 +194,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       }
       case "add" -> {
         if (!isOperator(player)) {
-          player.sendMessage(prefixed("no-permission"));
+          player.sendMessage(prefixed("kitshop-admin-only"));
           return true;
         }
         if (args.length < 3) {
@@ -216,7 +216,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       }
       case "reload" -> {
         if (!isOperator(player)) {
-          player.sendMessage(prefixed("no-permission"));
+          player.sendMessage(prefixed("kitshop-admin-only"));
           return true;
         }
         reloadConfig();
@@ -427,7 +427,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     event.setCancelled(true);
     if (holder.mode() == ShopMode.ADMIN && !isOperator(player)) {
       player.closeInventory();
-      player.sendMessage(prefixed("no-permission"));
+      player.sendMessage(prefixed("kitshop-admin-only"));
       return;
     }
 
@@ -632,12 +632,18 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
   }
 
   private void upgradeAccessMessages() {
+    boolean changed = false;
     String currentMessage = getConfig().getString("messages.no-permission", "");
-    if (!currentMessage.contains("Only server ops can use /kitshop")) {
-      return;
+    if (currentMessage.contains("/kitshop")) {
+      getConfig().set("messages.kitshop-admin-only", "&cOnly server ops can manage /kitshop.");
+      getConfig().set("messages.no-permission", "&cYou do not have permission.");
+      changed = true;
     }
-    getConfig().set("messages.no-permission", "&cOnly server ops can manage /kitshop.");
-    saveConfig();
+    changed |= setDefaultMessage("messages.no-permission", "&cYou do not have permission.");
+    changed |= setDefaultMessage("messages.kitshop-admin-only", "&cOnly server ops can manage /kitshop.");
+    if (changed) {
+      saveConfig();
+    }
   }
 
   private void upgradeMoneyMessages() {
@@ -1005,10 +1011,6 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       player.sendMessage(prefixed("lifesteal-disabled"));
       return;
     }
-    if (!player.hasPermission("minelifecore.lifesteal.use")) {
-      player.sendMessage(prefixed("no-permission"));
-      return;
-    }
     if (!getConfig().getBoolean("lifesteal.withdraw.enabled", true)) {
       player.sendMessage(prefixed("lifesteal-withdraw-disabled"));
       return;
@@ -1068,10 +1070,6 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
   private void handleReviveCommand(final Player player, final String[] args) {
     if (!isLifeStealEnabled()) {
       player.sendMessage(prefixed("lifesteal-disabled"));
-      return;
-    }
-    if (!player.hasPermission("minelifecore.lifesteal.use")) {
-      player.sendMessage(prefixed("no-permission"));
       return;
     }
     if (args.length != 1) {
@@ -1136,10 +1134,6 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     }
     if (!isLifeStealEnabled()) {
       player.sendMessage(prefixed("lifesteal-disabled"));
-      return true;
-    }
-    if (!player.hasPermission("minelifecore.lifesteal.use")) {
-      player.sendMessage(prefixed("no-permission"));
       return true;
     }
 
