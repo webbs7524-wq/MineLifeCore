@@ -7,6 +7,7 @@ settings:
 lifesteal:
   enabled: true
   starting-hearts: 10
+  minimum-withdraw-hearts: 1
   maximum-hearts: 20
   lose-hearts-on-non-player-death: false
   eliminate-to-spectator: true
@@ -60,7 +61,7 @@ messages:
   lifesteal-eliminated: "&c%player% has been eliminated."
   lifesteal-withdraw-usage: "&eUsage: /withdraw [amount]"
   lifesteal-withdraw-disabled: "&cHeart withdrawing is disabled."
-  lifesteal-not-enough-hearts: "&cYou only have &e%extra% &cextra hearts to withdraw."
+  lifesteal-not-enough-hearts: "&cYou must keep at least &e%minimum% &cheart. You can withdraw &e%extra% &cmore."
   lifesteal-withdrew: "&aWithdrew &e%amount% &aheart(s). Hearts left: &e%hearts%&a."
   lifesteal-heart-max: "&cYou are already at the heart limit."
   lifesteal-heart-used: "&aYou gained a heart. Hearts: &e%hearts%&a/&e%max_hearts%&a."

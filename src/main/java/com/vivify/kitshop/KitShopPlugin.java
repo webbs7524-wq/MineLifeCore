@@ -670,6 +670,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     boolean changed = false;
     changed |= setDefaultConfig("lifesteal.enabled", true);
     changed |= setDefaultConfig("lifesteal.starting-hearts", 10);
+    changed |= setDefaultConfig("lifesteal.minimum-withdraw-hearts", 1);
     changed |= setDefaultConfig("lifesteal.maximum-hearts", 20);
     changed |= setDefaultConfig("lifesteal.lose-hearts-on-non-player-death", false);
     changed |= setDefaultConfig("lifesteal.eliminate-to-spectator", true);
@@ -684,7 +685,15 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     changed |= setDefaultMessage("messages.lifesteal-eliminated", "&c%player% has been eliminated.");
     changed |= setDefaultMessage("messages.lifesteal-withdraw-usage", "&eUsage: /withdraw [amount]");
     changed |= setDefaultMessage("messages.lifesteal-withdraw-disabled", "&cHeart withdrawing is disabled.");
-    changed |= setDefaultMessage("messages.lifesteal-not-enough-hearts", "&cYou only have &e%extra% &cextra hearts to withdraw.");
+    changed |= setDefaultMessage(
+        "messages.lifesteal-not-enough-hearts",
+        "&cYou must keep at least &e%minimum% &cheart. You can withdraw &e%extra% &cmore.");
+    if (getConfig().getString("messages.lifesteal-not-enough-hearts", "").contains("extra hearts to withdraw")) {
+      getConfig().set(
+          "messages.lifesteal-not-enough-hearts",
+          "&cYou must keep at least &e%minimum% &cheart. You can withdraw &e%extra% &cmore.");
+      changed = true;
+    }
     changed |= setDefaultMessage("messages.lifesteal-withdrew", "&aWithdrew &e%amount% &aheart(s). Hearts left: &e%hearts%&a.");
     changed |= setDefaultMessage("messages.lifesteal-heart-max", "&cYou are already at the heart limit.");
     changed |= setDefaultMessage("messages.lifesteal-heart-used", "&aYou gained a heart. Hearts: &e%hearts%&a/&e%max_hearts%&a.");
@@ -941,9 +950,16 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       return;
     }
 
-    int extraHearts = Math.max(0, profile.hearts() - startingHearts());
-    if (amount > extraHearts) {
-      player.sendMessage(formatLifeStealMessage("lifesteal-not-enough-hearts", player.getName(), player.getName(), "", profile.hearts(), amount, extraHearts));
+    int withdrawableHearts = Math.max(0, profile.hearts() - minimumWithdrawHearts());
+    if (amount > withdrawableHearts) {
+      player.sendMessage(formatLifeStealMessage(
+          "lifesteal-not-enough-hearts",
+          player.getName(),
+          player.getName(),
+          "",
+          profile.hearts(),
+          amount,
+          withdrawableHearts));
       return;
     }
 
@@ -957,7 +973,14 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     applyLifeStealHealth(player);
     saveLifeStealData();
     player.getInventory().addItem(hearts);
-    player.sendMessage(formatLifeStealMessage("lifesteal-withdrew", player.getName(), player.getName(), "", profile.hearts(), amount, extraHearts - amount));
+    player.sendMessage(formatLifeStealMessage(
+        "lifesteal-withdrew",
+        player.getName(),
+        player.getName(),
+        "",
+        profile.hearts(),
+        amount,
+        withdrawableHearts - amount));
   }
 
   private void handleReviveCommand(final Player player, final String[] args) {
@@ -1343,6 +1366,10 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     return Math.max(1, getConfig().getInt("lifesteal.starting-hearts", 10));
   }
 
+  private int minimumWithdrawHearts() {
+    return Math.max(1, Math.min(maximumHearts(), getConfig().getInt("lifesteal.minimum-withdraw-hearts", 1)));
+  }
+
   private int maximumHearts() {
     return Math.max(startingHearts(), getConfig().getInt("lifesteal.maximum-hearts", 20));
   }
@@ -1489,7 +1516,8 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
         .replace("%hearts%", String.valueOf(Math.max(0, hearts)))
         .replace("%max_hearts%", String.valueOf(maximumHearts()))
         .replace("%amount%", String.valueOf(Math.max(0, amount)))
-        .replace("%extra%", String.valueOf(Math.max(0, extra))));
+        .replace("%extra%", String.valueOf(Math.max(0, extra)))
+        .replace("%minimum%", String.valueOf(minimumWithdrawHearts())));
   }
 
   private void startPingOptimizer() {
