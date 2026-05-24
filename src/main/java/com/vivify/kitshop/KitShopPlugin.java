@@ -1417,7 +1417,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     if (getConfig().getBoolean("lifesteal.recipes.heart.enabled", true)) {
       ShapedRecipe heartRecipe = new ShapedRecipe(heartRecipeKey, createLifeHeartItem(1));
       heartRecipe.shape("RDR", "DTD", "RDR");
-      heartRecipe.setIngredient('R', Material.REDSTONE_BLOCK);
+      heartRecipe.setIngredient('R', Material.DIAMOND_BLOCK);
       heartRecipe.setIngredient('D', Material.DIAMOND_BLOCK);
       heartRecipe.setIngredient('T', Material.TOTEM_OF_UNDYING);
       addRecipeSafely(heartRecipe);
@@ -1428,7 +1428,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       reviveRecipe.shape("SNS", "DBD", "STS");
       reviveRecipe.setIngredient('S', Material.SOUL_SAND);
       reviveRecipe.setIngredient('N', Material.NETHER_STAR);
-      reviveRecipe.setIngredient('D', Material.DIAMOND_BLOCK);
+      reviveRecipe.setIngredient('D', Material.NETHERITE_BLOCK);
       reviveRecipe.setIngredient('B', Material.BEACON);
       reviveRecipe.setIngredient('T', Material.TOTEM_OF_UNDYING);
       addRecipeSafely(reviveRecipe);
