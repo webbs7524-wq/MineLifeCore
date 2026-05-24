@@ -37,6 +37,10 @@ commands:
     description: Shows or manages MineLife Core LifeSteal data.
     usage: "/lifesteal [status|set <player> <hearts>|revive <player>|unban <player>|reload]"
     aliases: [lscore]
+  hearts:
+    description: Sets a player's LifeSteal hearts as an admin.
+    usage: "/hearts [set] <player> <hearts>"
+    aliases: [sethearts]
 permissions:
   kitshop.use:
     description: Allows players to buy from the kit shop.

@@ -83,4 +83,5 @@ messages:
   lifesteal-revived: "&a%player% has been revived with &e%hearts% &ahearts."
   lifesteal-unbanned: "&a%player% has been unbanned from LifeSteal with &e%hearts% &ahearts."
   lifesteal-admin-usage: "&eUsage: /lifesteal [status|set <player> <hearts>|revive <player>|unban <player>|reload]"
+  lifesteal-hearts-usage: "&eUsage: /hearts [set] <player> <hearts>"
   lifesteal-set: "&aSet &f%player% &ato &e%hearts% &ahearts."

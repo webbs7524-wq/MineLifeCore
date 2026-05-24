@@ -117,6 +117,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     registerCommand("withdraw");
     registerCommand("revive");
     registerCommand("lifesteal");
+    registerCommand("hearts");
     registerLifeStealRecipes();
     discoverLifeStealRecipesToOnlinePlayers();
     applyLifeStealToOnlinePlayers();
@@ -143,6 +144,10 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     }
     if (matchesCommand(command, label, "lifesteal", "lscore")) {
       handleLifeStealCommand(sender, args);
+      return true;
+    }
+    if (matchesCommand(command, label, "hearts", "sethearts")) {
+      handleHeartsCommand(sender, args);
       return true;
     }
 
@@ -336,6 +341,36 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       if (args.length == 3 && canAdminLifeSteal(sender) && "set".equalsIgnoreCase(args[0])) {
         return List.of("1", "5", "10", "15", "20").stream()
             .filter(value -> value.startsWith(args[2].toLowerCase(Locale.ROOT)))
+            .toList();
+      }
+      return List.of();
+    }
+
+    if (matchesCommand(command, alias, "hearts", "sethearts")) {
+      if (!canAdminLifeSteal(sender)) {
+        return List.of();
+      }
+      if (args.length == 1) {
+        List<String> completions = new ArrayList<>();
+        completions.add("set");
+        for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
+          completions.add(onlinePlayer.getName());
+        }
+        return completions.stream()
+            .filter(value -> value.toLowerCase(Locale.ROOT).startsWith(args[0].toLowerCase(Locale.ROOT)))
+            .toList();
+      }
+      if (args.length == 2 && "set".equalsIgnoreCase(args[0])) {
+        return Bukkit.getOnlinePlayers().stream()
+            .map(Player::getName)
+            .filter(value -> value.toLowerCase(Locale.ROOT).startsWith(args[1].toLowerCase(Locale.ROOT)))
+            .toList();
+      }
+      if ((args.length == 2 && !"set".equalsIgnoreCase(args[0]))
+          || (args.length == 3 && "set".equalsIgnoreCase(args[0]))) {
+        String heartText = "set".equalsIgnoreCase(args[0]) ? args[2] : args[1];
+        return List.of("0", "1", "5", "10", "20").stream()
+            .filter(value -> value.startsWith(heartText.toLowerCase(Locale.ROOT)))
             .toList();
       }
       return List.of();
@@ -785,6 +820,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       getConfig().set("messages.lifesteal-admin-usage", lifeStealAdminUsage);
       changed = true;
     }
+    changed |= setDefaultMessage("messages.lifesteal-hearts-usage", "&eUsage: /hearts [set] <player> <hearts>");
     changed |= setDefaultMessage("messages.lifesteal-set", "&aSet &f%player% &ato &e%hearts% &ahearts.");
     if (changed) {
       saveConfig();
@@ -978,20 +1014,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     }
 
     if ("set".equalsIgnoreCase(args[0]) && args.length == 3) {
-      OfflinePlayer target = findTarget(args[1]);
-      Integer hearts = parseStock(args[2]);
-      if (hearts == null && "0".equals(args[2])) {
-        hearts = 0;
-      }
-      if (hearts == null) {
-        sender.sendMessage(prefixed("invalid-stock"));
-        return;
-      }
-      LifeStealProfile profile = getOrCreateLifeStealProfile(target);
-      setProfileHearts(profile, hearts);
-      saveLifeStealData();
-      applyLifeStealIfOnline(target);
-      sender.sendMessage(formatLifeStealMessage("lifesteal-set", displayName(target), displayName(target), "", profile.hearts(), 0, 0));
+      setPlayerHearts(sender, args[1], args[2], "lifesteal-admin-usage");
       return;
     }
 
@@ -1007,6 +1030,50 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     }
 
     sender.sendMessage(prefixed("lifesteal-admin-usage"));
+  }
+
+  private void handleHeartsCommand(final CommandSender sender, final String[] args) {
+    if (!canAdminLifeSteal(sender)) {
+      sender.sendMessage(prefixed("no-permission"));
+      return;
+    }
+
+    if (args.length == 2) {
+      setPlayerHearts(sender, args[0], args[1], "lifesteal-hearts-usage");
+      return;
+    }
+    if (args.length == 3 && "set".equalsIgnoreCase(args[0])) {
+      setPlayerHearts(sender, args[1], args[2], "lifesteal-hearts-usage");
+      return;
+    }
+
+    sender.sendMessage(prefixed("lifesteal-hearts-usage"));
+  }
+
+  private void setPlayerHearts(
+      final CommandSender sender,
+      final String targetName,
+      final String heartsText,
+      final String usageMessageKey) {
+    Integer hearts = parseHeartCount(heartsText);
+    if (hearts == null) {
+      sender.sendMessage(prefixed(usageMessageKey));
+      return;
+    }
+
+    OfflinePlayer target = findTarget(targetName);
+    LifeStealProfile profile = getOrCreateLifeStealProfile(target);
+    setProfileHearts(profile, hearts);
+    saveLifeStealData();
+    applyLifeStealIfOnline(target);
+    sender.sendMessage(formatLifeStealMessage(
+        "lifesteal-set",
+        displayName(target),
+        displayName(target),
+        "",
+        profile.hearts(),
+        0,
+        0));
   }
 
   private void handleWithdrawCommand(final Player player, final String[] args) {
@@ -1372,7 +1439,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       try {
         UUID playerId = UUID.fromString(idText);
         String name = section.getString(idText + ".name", playerId.toString());
-        int hearts = Math.max(0, Math.min(maximumHearts(), section.getInt(idText + ".hearts", startingHearts())));
+        int hearts = Math.max(0, section.getInt(idText + ".hearts", startingHearts()));
         boolean eliminated = section.getBoolean(idText + ".eliminated", hearts <= 0);
         boolean hasBedSpawn = section.getBoolean(idText + ".has-bed-spawn", false);
         lifeStealProfiles.put(playerId, new LifeStealProfile(name, hearts, eliminated, hasBedSpawn));
@@ -1503,7 +1570,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     LifeStealProfile profile = initializeLifeStealProfile(player);
     AttributeInstance maxHealth = player.getAttribute(Attribute.MAX_HEALTH);
     if (maxHealth != null) {
-      double hearts = Math.max(1, Math.min(maximumHearts(), Math.max(0, profile.hearts())));
+      double hearts = Math.max(1, Math.max(0, profile.hearts()));
       double healthValue = hearts * 2.0;
       maxHealth.setBaseValue(healthValue);
       if (!player.isDead() && player.getHealth() > healthValue) {
@@ -1525,7 +1592,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     if (profile == null) {
       int currentHearts = currentBaseHearts(player);
       int starting = startingHearts();
-      int initialHearts = currentHearts > 0 ? Math.min(maximumHearts(), currentHearts) : starting;
+      int initialHearts = currentHearts > 0 ? currentHearts : starting;
       profile = new LifeStealProfile(player.getName(), initialHearts, initialHearts <= 0, false);
       lifeStealProfiles.put(player.getUniqueId(), profile);
       saveLifeStealData();
@@ -1545,7 +1612,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
   }
 
   private void setProfileHearts(final LifeStealProfile profile, final int hearts) {
-    int clampedHearts = Math.max(0, Math.min(maximumHearts(), hearts));
+    int clampedHearts = Math.max(0, hearts);
     profile.setHearts(clampedHearts);
     profile.setEliminated(clampedHearts <= 0);
   }
@@ -1714,7 +1781,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
         .replace("%victim%", victim)
         .replace("%killer%", killer)
         .replace("%hearts%", String.valueOf(Math.max(0, hearts)))
-        .replace("%max_hearts%", String.valueOf(maximumHearts()))
+        .replace("%max_hearts%", String.valueOf(Math.max(maximumHearts(), Math.max(0, hearts))))
         .replace("%amount%", String.valueOf(Math.max(0, amount)))
         .replace("%extra%", String.valueOf(Math.max(0, extra)))
         .replace("%minimum%", String.valueOf(minimumWithdrawHearts())));
@@ -2230,6 +2297,15 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     try {
       int stock = Integer.parseInt(value.replace(",", ""));
       return stock > 0 ? stock : null;
+    } catch (NumberFormatException exception) {
+      return null;
+    }
+  }
+
+  private Integer parseHeartCount(final String value) {
+    try {
+      int hearts = Integer.parseInt(value.replace(",", ""));
+      return hearts >= 0 ? hearts : null;
     } catch (NumberFormatException exception) {
       return null;
     }
