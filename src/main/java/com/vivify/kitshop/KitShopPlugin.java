@@ -118,6 +118,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     registerCommand("revive");
     registerCommand("lifesteal");
     registerLifeStealRecipes();
+    discoverLifeStealRecipesToOnlinePlayers();
     applyLifeStealToOnlinePlayers();
     startPingOptimizer();
   }
@@ -539,6 +540,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     if (isLifeStealEnabled()) {
       initializeLifeStealProfile(event.getPlayer());
       Bukkit.getScheduler().runTaskLater(this, () -> applyLifeStealHealth(event.getPlayer()), 1L);
+      Bukkit.getScheduler().runTaskLater(this, () -> discoverLifeStealRecipes(event.getPlayer()), 20L);
     }
     if (isPingOptimizerEnabled()) {
       Bukkit.getScheduler().runTaskLater(this, () -> applyTcpNoDelay(event.getPlayer()), 20L);
@@ -968,6 +970,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       upgradeLifeStealSettings();
       loadLifeStealData();
       registerLifeStealRecipes();
+      discoverLifeStealRecipesToOnlinePlayers();
       applyLifeStealToOnlinePlayers();
       startPingOptimizer();
       sender.sendMessage(prefixed("reloaded"));
@@ -1302,6 +1305,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       loadListings();
       loadLifeStealData();
       registerLifeStealRecipes();
+      discoverLifeStealRecipesToOnlinePlayers();
       applyLifeStealToOnlinePlayers();
       startPingOptimizer();
       player.sendMessage(prefixed("reloaded"));
@@ -1445,6 +1449,24 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
       Bukkit.addRecipe(recipe);
     } catch (IllegalStateException exception) {
       getLogger().fine("LifeSteal recipe was already registered: " + recipe.getKey());
+    }
+  }
+
+  private void discoverLifeStealRecipesToOnlinePlayers() {
+    for (Player player : Bukkit.getOnlinePlayers()) {
+      discoverLifeStealRecipes(player);
+    }
+  }
+
+  private void discoverLifeStealRecipes(final Player player) {
+    if (!isLifeStealEnabled()) {
+      return;
+    }
+    if (heartRecipeKey != null && getConfig().getBoolean("lifesteal.recipes.heart.enabled", true)) {
+      player.discoverRecipe(heartRecipeKey);
+    }
+    if (reviveRecipeKey != null && getConfig().getBoolean("lifesteal.recipes.revive-beacon.enabled", true)) {
+      player.discoverRecipe(reviveRecipeKey);
     }
   }
 
