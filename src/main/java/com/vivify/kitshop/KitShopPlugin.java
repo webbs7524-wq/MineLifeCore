@@ -1416,9 +1416,10 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
 
     if (getConfig().getBoolean("lifesteal.recipes.heart.enabled", true)) {
       ShapedRecipe heartRecipe = new ShapedRecipe(heartRecipeKey, createLifeHeartItem(1));
-      heartRecipe.shape("RDR", "DTD", "RDR");
-      heartRecipe.setIngredient('R', Material.DIAMOND_BLOCK);
+      heartRecipe.shape("EDE", "NTN", "EDE");
+      heartRecipe.setIngredient('E', Material.EMERALD_BLOCK);
       heartRecipe.setIngredient('D', Material.DIAMOND_BLOCK);
+      heartRecipe.setIngredient('N', Material.NETHERITE_BLOCK);
       heartRecipe.setIngredient('T', Material.TOTEM_OF_UNDYING);
       addRecipeSafely(heartRecipe);
     }
@@ -1577,7 +1578,7 @@ public class KitShopPlugin extends JavaPlugin implements Listener, CommandExecut
     ItemStack item = new ItemStack(Material.RED_DYE, Math.max(1, amount));
     ItemMeta meta = item.getItemMeta();
     if (meta != null) {
-      meta.setDisplayName(color("&cLife Heart"));
+      meta.setDisplayName(color("&cHeart"));
       meta.setLore(List.of(
           color("&7Right-click to gain one max heart."),
           color("&7Can be crafted or withdrawn with /withdraw.")));
